@@ -273,6 +273,11 @@ ysm-manager-server/
 
 本项目基于 [ysm-manager-server](https://github.com/XiaoDengPiaoPiao/ysm-manager-server) 开发，感谢原作者的工作。
 
+## 作者
+
+- **GitHub**: [LingMowen](https://github.com/LingMowen)
+- **哔哩哔哩**: [凌墨问的个人空间](https://b23.tv/zWWyd1U)
+
 ## License
 
 Apache License 2.0

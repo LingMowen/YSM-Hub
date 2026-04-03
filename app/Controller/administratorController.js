@@ -408,20 +408,40 @@ function createAdministratorController() {
         return baseController.error(res, '该模型已审核', 400);
       }
 
-      const newStatus = action === 'approve' ? 'approved' : 'rejected';
+      if (action === 'approve') {
+        await baseController.prisma.Model.update({
+          where: { id: modelId },
+          data: {
+            reviewStatus: 'approved',
+            reviewedBy: reviewerId,
+            reviewedAt: new Date()
+          }
+        });
 
-      await baseController.prisma.Model.update({
-        where: { id: modelId },
-        data: {
-          reviewStatus: newStatus,
-          reviewedBy: reviewerId,
-          reviewedAt: new Date()
-        }
-      });
+        console.log(`模型审核通过 - 模型ID: ${modelId} 文件名: ${model.fileName} 审核员ID: ${reviewerId}`);
+        return baseController.success(res, null, '模型已通过审核');
+      } else {
+        await baseController.prisma.ModelUploader.deleteMany({
+          where: { modelId }
+        });
 
-      console.log(`模型审核 - 模型ID: ${modelId} 操作: ${action} 审核员ID: ${reviewerId}`);
+        await baseController.prisma.ModelComment.deleteMany({
+          where: { modelId }
+        });
 
-      return baseController.success(res, null, action === 'approve' ? '模型已通过审核' : '模型已拒绝');
+        await baseController.prisma.ModelAuthorization.deleteMany({
+          where: { modelId }
+        });
+
+        await baseController.prisma.Model.delete({
+          where: { id: modelId }
+        });
+
+        baseController.deleteModelFolder(model.hash);
+
+        console.log(`模型审核拒绝并删除 - 模型ID: ${modelId} 文件名: ${model.fileName} 哈希: ${model.hash} 审核员ID: ${reviewerId}`);
+        return baseController.success(res, null, '模型已拒绝并删除');
+      }
     } catch (err) {
       console.error('审核模型错误:', err);
       return baseController.error(res, '审核操作失败', 500);
