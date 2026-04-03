@@ -73,24 +73,94 @@ export function parseYsmMetadata(fileBuffer) {
   return metadata;
 }
 
-export async function saveYsmFile(fileBuffer, fileName, dirType = 'custom', userId = null) {
-  const baseDir = process.env.YSM_MODEL_DIR || './ysm_models';
+export async function saveYsmFile(fileBuffer, fileName, hash, baseDir = null) {
+  const modelDir = baseDir || process.env.YSM_MODEL_DIR || './ysm_models';
   
-  let targetDir;
-  if (userId) {
-    targetDir = path.join(baseDir, 'users', String(userId), dirType);
-  } else {
-    targetDir = path.join(baseDir, dirType);
+  const modelFolder = path.join(modelDir, hash);
+  
+  if (!fs.existsSync(modelFolder)) {
+    fs.mkdirSync(modelFolder, { recursive: true });
   }
 
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
+  const modelFilePath = path.join(modelFolder, `${fileName}.ysm`);
+  fs.writeFileSync(modelFilePath, fileBuffer);
+
+  const infoPath = path.join(modelFolder, 'info.json');
+  const info = {
+    fileName: fileName,
+    hash: hash,
+    fileSize: fileBuffer.length,
+    createdAt: new Date().toISOString()
+  };
+  fs.writeFileSync(infoPath, JSON.stringify(info, null, 2));
+
+  return modelFilePath;
+}
+
+export function saveModelPreviewImage(imageBuffer, hash, baseDir = null) {
+  const modelDir = baseDir || process.env.YSM_MODEL_DIR || './ysm_models';
+  const modelFolder = path.join(modelDir, hash);
+  
+  if (!fs.existsSync(modelFolder)) {
+    fs.mkdirSync(modelFolder, { recursive: true });
   }
 
-  const filePath = path.join(targetDir, fileName);
-  fs.writeFileSync(filePath, fileBuffer);
+  const previewPath = path.join(modelFolder, 'preview.png');
+  fs.writeFileSync(previewPath, imageBuffer);
 
-  return filePath;
+  return previewPath;
+}
+
+export function getModelFolderPath(hash, baseDir = null) {
+  const modelDir = baseDir || process.env.YSM_MODEL_DIR || './ysm_models';
+  return path.join(modelDir, hash);
+}
+
+export function deleteModelFolder(hash, baseDir = null) {
+  const modelFolder = getModelFolderPath(hash, baseDir);
+  
+  if (fs.existsSync(modelFolder)) {
+    fs.rmSync(modelFolder, { recursive: true, force: true });
+    return true;
+  }
+  return false;
+}
+
+export function getModelInfo(hash, baseDir = null) {
+  const modelFolder = getModelFolderPath(hash, baseDir);
+  const infoPath = path.join(modelFolder, 'info.json');
+  
+  if (fs.existsSync(infoPath)) {
+    const content = fs.readFileSync(infoPath, 'utf8');
+    return JSON.parse(content);
+  }
+  return null;
+}
+
+export function updateModelInfo(hash, updates, baseDir = null) {
+  const modelFolder = getModelFolderPath(hash, baseDir);
+  const infoPath = path.join(modelFolder, 'info.json');
+  
+  let info = {};
+  if (fs.existsSync(infoPath)) {
+    const content = fs.readFileSync(infoPath, 'utf8');
+    info = JSON.parse(content);
+  }
+  
+  const updatedInfo = { ...info, ...updates, updatedAt: new Date().toISOString() };
+  fs.writeFileSync(infoPath, JSON.stringify(updatedInfo, null, 2));
+  
+  return updatedInfo;
+}
+
+export function getModelPreviewPath(hash, baseDir = null) {
+  const modelFolder = getModelFolderPath(hash, baseDir);
+  const previewPath = path.join(modelFolder, 'preview.png');
+  
+  if (fs.existsSync(previewPath)) {
+    return previewPath;
+  }
+  return null;
 }
 
 export function success(res, data, message = '操作成功') {
@@ -102,11 +172,11 @@ export function success(res, data, message = '操作成功') {
   });
 }
 
-export function error(res, message = '操作失败', code = 400,data = null) {
+export function error(res, message = '操作失败', code = 400, data = null) {
   return res.status(code).json({
     code,
     message,
-    data, 
+    data,
     timestamp: new Date().toISOString()
   });
 }

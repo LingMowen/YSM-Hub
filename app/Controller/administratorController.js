@@ -52,25 +52,51 @@ function createAdministratorController() {
       }
 
       const model = await baseController.prisma.Model.findFirst({
-        where: { id: modelId }
+        where: { id: modelId },
+        include: { uploaders: true }
       });
 
       if (!model) {
         return baseController.error(res, '模型不存在', 404);
       }
 
-      baseController.deleteModelFile(model.fileName, model.currentType);
+      await baseController.prisma.ModelUploader.deleteMany({
+        where: { modelId }
+      });
+
+      await baseController.prisma.ModelComment.deleteMany({
+        where: { modelId }
+      });
+
+      await baseController.prisma.ModelAuthorization.deleteMany({
+        where: { modelId }
+      });
 
       await baseController.prisma.Model.delete({
         where: { id: modelId }
       });
 
+      baseController.deleteModelFolder(model.hash);
+
+      const gameServerModelDir = await baseController.getSystemSetting('gameServerModelDir');
+      if (gameServerModelDir) {
+        const fs = await import('fs');
+        const path = await import('path');
+        const gameServerModelPath = path.join(gameServerModelDir, `${model.fileName}.ysm`);
+        if (fs.existsSync(gameServerModelPath)) {
+          fs.unlinkSync(gameServerModelPath);
+          console.log(`已删除游戏服务器中的模型文件: ${gameServerModelPath}`);
+        }
+      }
+
       await baseController.reloadModels();
+
+      console.log(`管理员删除模型 - 模型: ${model.fileName} 哈希: ${model.hash}`);
 
       return baseController.success(res, {
         modelId: model.id,
         fileName: model.fileName,
-        currentType: model.currentType
+        hash: model.hash
       }, '模型已删除');
     } catch (err) {
       console.error('删除模型错误:', err);

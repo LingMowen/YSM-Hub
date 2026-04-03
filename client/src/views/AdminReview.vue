@@ -12,6 +12,11 @@
       <div v-if="loading" class="loading">
         <Icon name="refresh-cw" :size="24" class="spin" />
       </div>
+      <div v-else-if="!reviewEnabled" class="empty disabled">
+        <Icon name="shield-off" :size="48" color="#999" />
+        <p>模型审核功能已关闭</p>
+        <p class="hint">上传的模型将自动通过审核，无需人工审核</p>
+      </div>
       <div v-else-if="pendingModels.length === 0" class="empty">
         <Icon name="check-circle" :size="48" color="#16a34a" />
         <p>暂无待审核模型</p>
@@ -54,7 +59,6 @@
       </div>
     </div>
 
-    <!-- 详情弹窗 -->
     <div v-if="showDetailModal" class="modal" @click.self="showDetailModal = false">
       <div class="modal-content">
         <div class="modal-header">
@@ -115,6 +119,17 @@ const loading = ref(false);
 const pendingModels = ref([]);
 const showDetailModal = ref(false);
 const selectedModel = ref(null);
+const reviewEnabled = ref(true);
+
+const fetchSettings = async () => {
+  try {
+    const res = await api.admin.getSettings();
+    const settings = res.data?.settings || res.settings || {};
+    reviewEnabled.value = settings.reviewEnabled ?? true;
+  } catch (error) {
+    console.error('获取设置失败:', error);
+  }
+};
 
 const fetchPendingModels = async () => {
   loading.value = true;
@@ -173,6 +188,7 @@ const formatFileSize = (bytes) => {
 };
 
 onMounted(() => {
+  fetchSettings();
   fetchPendingModels();
 });
 </script>
@@ -211,8 +227,19 @@ onMounted(() => {
   color: #999;
 }
 
+.empty.disabled {
+  background: #f9f9f9;
+  border-radius: 8px;
+}
+
 .empty p {
   margin: 12px 0 0;
+}
+
+.empty .hint {
+  font-size: 13px;
+  color: #bbb;
+  margin-top: 8px;
 }
 
 .model-list {

@@ -70,6 +70,9 @@
             <button @click.stop="viewModel(model)" class="action-btn" title="查看详情">
               <Icon name="eye" :size="18" />
             </button>
+            <button v-if="model.type === 'auth'" @click.stop="authorizeModel(model)" class="action-btn success" title="授权">
+              <Icon name="key" :size="18" />
+            </button>
             <button v-if="authStore.isAdmin" @click.stop="editModel(model)" class="action-btn" title="编辑">
               <Icon name="edit" :size="18" />
             </button>
@@ -234,6 +237,24 @@ const deleteModel = async (model) => {
     alert('删除成功');
   } catch (error) {
     alert('删除失败');
+  }
+};
+
+const authorizeModel = async (model) => {
+  const gameName = authStore.user?.gameName;
+  
+  if (!gameName) {
+    alert('请先绑定游戏名');
+    return;
+  }
+  
+  if (!confirm(`确定将模型 "${model.name}" 授权给 "${gameName}" 吗？`)) return;
+  
+  try {
+    await api.models.authorize(model.id, gameName);
+    alert('授权成功');
+  } catch (error) {
+    alert('授权失败: ' + (error.message || '未知错误'));
   }
 };
 
@@ -524,6 +545,15 @@ onMounted(() => {
 .action-btn.danger:hover {
   background: #fef2f2;
   color: #dc2626;
+}
+
+.action-btn.success {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.action-btn.success:hover {
+  background: #dcfce7;
 }
 
 .pagination {

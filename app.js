@@ -56,6 +56,8 @@ app.get(/^(?!\/api\/)/, (req, res) => {
 import initSystem from './src/utils/initCheck.js';
 // 导入baseController用于模型重载
 import createController from './app/Controller/baseController.js';
+// 导入推送调度器
+import { startPushScheduler } from './src/utils/pushScheduler.js';
 const baseController = createController();
 
 // 定时重载模型功能
@@ -81,6 +83,8 @@ initSystem().then(() => {
     console.log(`当前版本为 ${process.env.VERSION}`);
     // 设置定时重载
     setupScheduledReload();
+    // 启动模型推送调度器
+    startPushScheduler();
   });
 });
 

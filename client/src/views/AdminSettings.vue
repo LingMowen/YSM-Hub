@@ -16,6 +16,29 @@
             <p class="label-hint">模型文件存储路径，需要与游戏服务器 mods 文件夹共享</p>
           </div>
           <div class="form-group">
+            <label>游戏服务器模型目录</label>
+            <input v-model="settings.gameServerModelDir" type="text" placeholder="D:/minecraft/server/ysm_models" />
+            <p class="label-hint">游戏服务器的 YSM 模型目录，用于定时推送模型文件</p>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>推送间隔 (分钟)</label>
+              <input v-model.number="settings.pushInterval" type="number" min="1" max="1440" />
+              <p class="label-hint">定时推送模型到游戏服务器的间隔</p>
+            </div>
+            <div class="form-group">
+              <label class="toggle-label">
+                <span>启用定时推送</span>
+                <button
+                  :class="['toggle', { active: settings.pushEnabled }]"
+                  @click="settings.pushEnabled = !settings.pushEnabled"
+                >
+                  <span class="toggle-dot"></span>
+                </button>
+              </label>
+            </div>
+          </div>
+          <div class="form-group">
             <label>RCON 地址</label>
             <input v-model="settings.rconHost" type="text" placeholder="localhost" />
           </div>
@@ -162,6 +185,9 @@ import api from '../api';
 const saving = ref(false);
 const settings = reactive({
   modelDir: '',
+  gameServerModelDir: '',
+  pushInterval: 30,
+  pushEnabled: false,
   rconHost: '',
   rconPort: '',
   rconPassword: '',

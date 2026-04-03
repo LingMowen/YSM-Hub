@@ -230,19 +230,48 @@ function createModelController() {
   async function deleteModel(req, res) {
     try {
       const { id } = req.params;
+      const userId = req.user.id;
+      const isAdmin = req.user.role === 'admin';
+
       const model = await prisma.Model.findFirst({
-        where: { id: parseInt(id) }
+        where: { id: parseInt(id) },
+        include: {
+          uploaders: true
+        }
       });
 
       if (!model) {
         return baseController.error(res, '模型不存在', 404);
       }
 
-      await baseController.deleteModelFile(model.hash, model.type, model.uploadedBy);
+      const isUploader = model.uploaders.some(u => u.userId === userId);
+
+      if (!isAdmin && !isUploader) {
+        return baseController.error(res, '无权限删除此模型', 403);
+      }
+
+      await prisma.ModelUploader.deleteMany({
+        where: { modelId: parseInt(id) }
+      });
+
+      await prisma.ModelComment.deleteMany({
+        where: { modelId: parseInt(id) }
+      });
+
+      await prisma.ModelAuthorization.deleteMany({
+        where: { modelId: parseInt(id) }
+      });
 
       await prisma.Model.delete({
         where: { id: parseInt(id) }
       });
+
+      if (isAdmin) {
+        baseController.deleteModelFolder(model.hash);
+        console.log(`管理员删除模型 - 模型: ${model.fileName} 哈希: ${model.hash} 用户: ${req.user.name}`);
+      } else {
+        console.log(`用户删除模型记录 - 模型: ${model.fileName} 哈希: ${model.hash} 用户: ${req.user.name}`);
+      }
 
       return baseController.success(res, null, '模型删除成功');
     } catch (err) {
@@ -296,20 +325,18 @@ function createModelController() {
         req.user.id
       );
 
-      const filePath = await baseController.saveYsmFile(fileBuffer, fileName, 'custom', req.user.id);
-      await baseController.reloadModels();
+      await baseController.saveYsmFile(fileBuffer, fileName, metadata.hash);
 
       const message = reviewEnabled
         ? '模型上传成功，正在等待审核'
         : '模型上传成功';
 
-      console.log(`公共模型上传成功 - 用户: ${req.user.name} (ID: ${req.user.id}) 模型: ${fileName} 模型ID: ${newModel.id} 审核状态: ${reviewEnabled ? '待审核' : '已通过'}`);
+      console.log(`公共模型上传成功 - 用户: ${req.user.name} (ID: ${req.user.id}) 模型: ${fileName} 哈希: ${metadata.hash} 模型ID: ${newModel.id} 审核状态: ${reviewEnabled ? '待审核' : '已通过'}`);
 
       return baseController.success(res, {
         modelId: newModel.id,
         hash: metadata.hash,
         fileName: fileName,
-        filePath: filePath,
         reviewRequired: reviewEnabled
       }, message);
     } catch (err) {
@@ -344,8 +371,10 @@ function createModelController() {
         return baseController.error(res, '模型不存在', 404);
       }
 
-      const imageUrl = `/uploads/images/${req.file.filename}`;
+      baseController.saveModelPreviewImage(req.file.buffer, model.hash);
 
+      const imageUrl = `/api/models/${model.id}/preview`;
+      
       await prisma.Model.update({
         where: { id: parseInt(modelId) },
         data: { imageUrl }
@@ -884,16 +913,40 @@ function createModelController() {
         return baseController.error(res, '下载功能已关闭', 403);
       }
 
-      const filePath = await baseController.getYsmFilePath(model.hash, model.fileName);
+      const filePath = baseController.getModelFilePath(model.hash, model.fileName);
 
       if (!filePath) {
         return baseController.error(res, '文件不存在', 404);
       }
 
-      return baseController.success(res, { filePath, fileName: model.fileName });
+      res.download(filePath, `${model.fileName}.ysm`);
     } catch (err) {
-      console.error('获取下载链接错误:', err);
-      return baseController.error(res, '获取下载链接失败', 500);
+      console.error('下载文件错误:', err);
+      return baseController.error(res, '下载失败', 500);
+    }
+  }
+
+  async function getPreview(req, res) {
+    try {
+      const { id } = req.params;
+      const model = await prisma.Model.findFirst({
+        where: { id: parseInt(id) }
+      });
+
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
+      }
+
+      const previewPath = baseController.getModelPreviewPath(model.hash);
+
+      if (!previewPath) {
+        return res.status(404).send('预览图不存在');
+      }
+
+      res.sendFile(previewPath, { root: '/' });
+    } catch (err) {
+      console.error('获取预览图错误:', err);
+      return baseController.error(res, '获取预览图失败', 500);
     }
   }
 
@@ -1081,6 +1134,7 @@ function createModelController() {
     downloadToCustom,
     saveToMyModels,
     downloadFile,
+    getPreview,
     incrementDownloadCount,
     unlinkFromUser,
     getComments,

@@ -14,7 +14,10 @@ function createAdminController() {
         rconHost: await baseController.getSystemSetting('rconHost') || process.env.RCON_HOST || 'localhost',
         rconPort: await baseController.getSystemSetting('rconPort') || process.env.RCON_PORT || '25575',
         rconPassword: await baseController.getSystemSetting('rconPassword') || process.env.RCON_PASSWORD || '',
-        modelDir: await baseController.getSystemSetting('modelDir') || process.env.YSM_MODEL_DIR || './ysm_models'
+        modelDir: await baseController.getSystemSetting('modelDir') || process.env.YSM_MODEL_DIR || './ysm_models',
+        gameServerModelDir: await baseController.getSystemSetting('gameServerModelDir') || '',
+        pushInterval: parseInt(await baseController.getSystemSetting('pushInterval')) || 30,
+        pushEnabled: await baseController.getSystemSetting('pushEnabled') === 'true'
       };
 
       return baseController.success(res, { settings });
@@ -26,7 +29,7 @@ function createAdminController() {
 
   async function updateSettings(req, res) {
     try {
-      const { emailVerificationEnabled, whitelistEnabled, downloadEnabled, reviewEnabled, reviewImageMaxSize, rconHost, rconPort, rconPassword, modelDir } = req.body;
+      const { emailVerificationEnabled, whitelistEnabled, downloadEnabled, reviewEnabled, reviewImageMaxSize, rconHost, rconPort, rconPassword, modelDir, gameServerModelDir, pushInterval, pushEnabled } = req.body;
 
       if (emailVerificationEnabled !== undefined) {
         await baseController.setSystemSetting('emailVerificationEnabled', String(emailVerificationEnabled));
@@ -54,6 +57,15 @@ function createAdminController() {
       }
       if (modelDir !== undefined) {
         await baseController.setSystemSetting('modelDir', modelDir);
+      }
+      if (gameServerModelDir !== undefined) {
+        await baseController.setSystemSetting('gameServerModelDir', gameServerModelDir);
+      }
+      if (pushInterval !== undefined) {
+        await baseController.setSystemSetting('pushInterval', String(pushInterval));
+      }
+      if (pushEnabled !== undefined) {
+        await baseController.setSystemSetting('pushEnabled', String(pushEnabled));
       }
 
       return baseController.success(res, null, '设置已更新');

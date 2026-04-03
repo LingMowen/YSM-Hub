@@ -425,6 +425,51 @@ function createController() {
     return false;
   }
 
+  function deleteModelFolder(hash) {
+    const baseDir = process.env.YSM_MODEL_DIR || './ysm_models';
+    const modelFolder = path.join(baseDir, hash);
+    
+    if (fs.existsSync(modelFolder)) {
+      fs.rmSync(modelFolder, { recursive: true, force: true });
+      return true;
+    }
+    return false;
+  }
+
+  function getModelPreviewPath(hash) {
+    const baseDir = process.env.YSM_MODEL_DIR || './ysm_models';
+    const previewPath = path.join(baseDir, hash, 'preview.png');
+    
+    if (fs.existsSync(previewPath)) {
+      return previewPath;
+    }
+    return null;
+  }
+
+  function saveModelPreviewImage(imageBuffer, hash) {
+    const baseDir = process.env.YSM_MODEL_DIR || './ysm_models';
+    const modelFolder = path.join(baseDir, hash);
+    
+    if (!fs.existsSync(modelFolder)) {
+      fs.mkdirSync(modelFolder, { recursive: true });
+    }
+
+    const previewPath = path.join(modelFolder, 'preview.png');
+    fs.writeFileSync(previewPath, imageBuffer);
+
+    return previewPath;
+  }
+
+  function getModelFilePath(hash, fileName) {
+    const baseDir = process.env.YSM_MODEL_DIR || './ysm_models';
+    const modelPath = path.join(baseDir, hash, `${fileName}.ysm`);
+    
+    if (fs.existsSync(modelPath)) {
+      return modelPath;
+    }
+    return null;
+  }
+
   async function getUserCompleteInfo(userId) {
     const user = await prisma.User.findFirst({
       where: { id: userId },
@@ -556,6 +601,10 @@ function createController() {
     getUserUploadStats,
     moveModelFile,
     deleteModelFile,
+    deleteModelFolder,
+    getModelPreviewPath,
+    saveModelPreviewImage,
+    getModelFilePath,
     getUserCompleteInfo,
     checkUserUploadLimit,
     getSystemSetting,

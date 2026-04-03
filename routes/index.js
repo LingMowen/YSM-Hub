@@ -42,10 +42,13 @@ router.post('/models/:id/unlink-from-user', authMiddleware, modelController.unli
 router.post('/models/:id/download-to-custom', authMiddleware, modelController.downloadToCustom);
 router.post('/models/:id/save-to-my-models', authMiddleware, modelController.saveToMyModels);
 router.get('/models/:id/download', authMiddleware, modelController.downloadFile);
+router.get('/models/:id/preview', modelController.getPreview);
 router.post('/models/:id/increment-download', authMiddleware, modelController.incrementDownloadCount);
 router.get('/models/:id/comments', authMiddleware, modelController.getComments);
 router.post('/models/:id/comments', authMiddleware, modelController.addComment);
 router.delete('/models/comments/:id', authMiddleware, modelController.deleteComment);
+router.post('/models/:id/authorize', authMiddleware, modelController.authorizeModel);
+router.post('/models/:id/deauthorize', authMiddleware, modelController.deauthorizeModel);
 
 router.get('/users', authMiddleware, adminAuthMiddleware, async (req, res) => {
   try {

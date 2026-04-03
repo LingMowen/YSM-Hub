@@ -195,7 +195,7 @@ POST /api/user/login
 }
 ```
 
-#### 3. 用户登出
+#### 3. 用户登出&#x20;
 
 ```
 POST /api/user/logout

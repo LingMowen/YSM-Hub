@@ -72,7 +72,9 @@ export default {
     incrementDownloadCount: (id) => api.post(`/models/${id}/increment-download`),
     getComments: (id, params) => api.get(`/models/${id}/comments`, { params }),
     addComment: (id, data) => api.post(`/models/${id}/comments`, data),
-    deleteComment: (id) => api.delete(`/models/comments/${id}`)
+    deleteComment: (id) => api.delete(`/models/comments/${id}`),
+    authorize: (id, gameName) => api.post(`/models/${id}/authorize`, { modelId: id, gameName }),
+    deauthorize: (id, gameName) => api.post(`/models/${id}/deauthorize`, { modelId: id, gameName })
   },
 
   users: {
