@@ -47,6 +47,7 @@ ysm-manager-server/
 ## 数据库模型
 
 ### User (用户表)
+
 ```prisma
 model User {
   id                Int       @id @default(autoincrement())
@@ -65,6 +66,7 @@ model User {
 ```
 
 ### Model (模型表)
+
 ```prisma
 model Model {
   id              Int       @id @default(autoincrement())
@@ -80,6 +82,7 @@ model Model {
 ```
 
 ### ModelUploader (模型上传关联表)
+
 ```prisma
 model ModelUploader {
   id        Int       @id @default(autoincrement())
@@ -93,6 +96,7 @@ model ModelUploader {
 ```
 
 ### ModelAuthorization (模型授权表)
+
 ```prisma
 model ModelAuthorization {
   id        Int       @id @default(autoincrement())
@@ -104,6 +108,7 @@ model ModelAuthorization {
 ```
 
 ### NameBinding (游戏名绑定表)
+
 ```prisma
 model NameBinding {
   id                Int       @id @default(autoincrement())
@@ -122,6 +127,7 @@ model NameBinding {
 ## API 接口文档
 
 ### 基础信息
+
 - **基础URL**: `http://localhost:51300/api`
 - **数据格式**: JSON
 - **认证方式**: Bearer Token (Authorization: Bearer <token>)
@@ -129,17 +135,22 @@ model NameBinding {
 ### 用户接口 (/api/user)
 
 #### 1. 用户注册
+
 ```
 POST /api/user/register
 ```
+
 **请求参数**:
+
 ```json
 {
   "name": "用户名",
   "password": "密码"
 }
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -153,17 +164,22 @@ POST /api/user/register
 ```
 
 #### 2. 用户登录
+
 ```
 POST /api/user/login
 ```
+
 **请求参数**:
+
 ```json
 {
   "name": "用户名",
   "password": "密码"
 }
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -180,11 +196,14 @@ POST /api/user/login
 ```
 
 #### 3. 用户登出
+
 ```
 POST /api/user/logout
 Authorization: Bearer <token>
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -193,11 +212,14 @@ Authorization: Bearer <token>
 ```
 
 #### 4. 获取当前用户信息
+
 ```
 GET /api/user/info
 Authorization: Bearer <token>
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -211,11 +233,14 @@ Authorization: Bearer <token>
 ```
 
 #### 5. 修改密码
+
 ```
 POST /api/user/changePassword
 Authorization: Bearer <token>
 ```
+
 **请求参数**:
+
 ```json
 {
   "oldPassword": "旧密码",
@@ -224,17 +249,22 @@ Authorization: Bearer <token>
 ```
 
 #### 6. 更新游戏名（发送验证码）
+
 ```
 POST /api/user/updateGameName
 Authorization: Bearer <token>
 ```
+
 **请求参数**:
+
 ```json
 {
   "gameName": "游戏名"
 }
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -247,11 +277,14 @@ Authorization: Bearer <token>
 ```
 
 #### 7. 验证游戏名绑定
+
 ```
 POST /api/user/verifyGameName
 Authorization: Bearer <token>
 ```
+
 **请求参数**:
+
 ```json
 {
   "gameName": "游戏名",
@@ -260,11 +293,14 @@ Authorization: Bearer <token>
 ```
 
 #### 8. 检查绑定状态
+
 ```
 GET /api/user/bindingStatus
 Authorization: Bearer <token>
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -278,11 +314,14 @@ Authorization: Bearer <token>
 ```
 
 #### 9. 获取公共模型列表
+
 ```
 GET /api/user/models/custom
 Authorization: Bearer <token>
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -301,12 +340,14 @@ Authorization: Bearer <token>
 ```
 
 #### 10. 获取私人模型列表
+
 ```
 GET /api/user/models/auth
 Authorization: Bearer <token>
 ```
 
 #### 11. 获取所有模型列表
+
 ```
 GET /api/user/models/all
 Authorization: Bearer <token>
@@ -315,18 +356,23 @@ Authorization: Bearer <token>
 ### 模型接口 (/api/ysm)
 
 #### 1. Hash 验证
+
 ```
 POST /api/ysm/hashVerification
 Authorization: Bearer <token>
 ```
+
 **请求参数**:
+
 ```json
 {
   "hash": "文件哈希值",
   "type": "custom" // 或 "auth"
 }
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -339,15 +385,19 @@ Authorization: Bearer <token>
 ```
 
 #### 2. 上传公共模型
+
 ```
 POST /api/ysm/custom
 Authorization: Bearer <token>
 Content-Type: multipart/form-data
 ```
+
 **请求参数**:
+
 - `file`: YSM 模型文件 (.ysm)
 
 **响应**:
+
 ```json
 {
   "success": true,
@@ -361,6 +411,7 @@ Content-Type: multipart/form-data
 ```
 
 #### 3. 上传私人模型
+
 ```
 POST /api/ysm/auth
 Authorization: Bearer <token>
@@ -368,11 +419,14 @@ Content-Type: multipart/form-data
 ```
 
 #### 4. 授权模型
+
 ```
 POST /api/ysm/auth/:id
 Authorization: Bearer <token>
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -383,12 +437,14 @@ Authorization: Bearer <token>
 ```
 
 #### 5. 解除授权模型
+
 ```
 POST /api/ysm/deauth/:id
 Authorization: Bearer <token>
 ```
 
 #### 6. 删除私人模型
+
 ```
 DELETE /api/ysm/auth/:id
 Authorization: Bearer <token>
@@ -397,17 +453,22 @@ Authorization: Bearer <token>
 ### 管理员接口 (/api/admin)
 
 #### 1. 重置用户密码
+
 ```
 POST /api/admin/resetPassword
 Authorization: Bearer <adminKey>
 ```
+
 **请求参数**:
+
 ```json
 {
   "username": "用户名"
 }
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -419,11 +480,14 @@ Authorization: Bearer <adminKey>
 ```
 
 #### 2. 删除模型
+
 ```
 DELETE /api/admin/delmodel/:id
 Authorization: Bearer <adminKey>
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -436,17 +500,22 @@ Authorization: Bearer <adminKey>
 ```
 
 #### 3. 根据文件名查找模型
+
 ```
 POST /api/admin/getmodel
 Authorization: Bearer <adminKey>
 ```
+
 **请求参数**:
+
 ```json
 {
   "fileName": "模型.ysm"
 }
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -468,11 +537,14 @@ Authorization: Bearer <adminKey>
 ```
 
 #### 4. 获取所有模型列表
+
 ```
 GET /api/admin/models
 Authorization: Bearer <adminKey>
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -498,11 +570,14 @@ Authorization: Bearer <adminKey>
 ```
 
 #### 5. 更新用户上传限制
+
 ```
 POST /api/admin/updateUploadLimit
 Authorization: Bearer <adminKey>
 ```
+
 **请求参数**:
+
 ```json
 {
   "username": "用户名",
@@ -512,17 +587,22 @@ Authorization: Bearer <adminKey>
 ```
 
 #### 6. 通过用户名查询用户
+
 ```
 POST /api/admin/getUserInfoByUsername
 Authorization: Bearer <adminKey>
 ```
+
 **请求参数**:
+
 ```json
 {
   "username": "用户名"
 }
 ```
+
 **响应**:
+
 ```json
 {
   "success": true,
@@ -542,11 +622,14 @@ Authorization: Bearer <adminKey>
 ```
 
 #### 7. 通过游戏名查询用户
+
 ```
 POST /api/admin/getUserInfoByGameName
 Authorization: Bearer <adminKey>
 ```
+
 **请求参数**:
+
 ```json
 {
   "gameName": "游戏名"
@@ -556,23 +639,28 @@ Authorization: Bearer <adminKey>
 ## 中间件说明
 
 ### 1. authMiddleware (用户鉴权)
+
 - 验证用户登录状态
 - 检查 Token 是否有效且未过期
 - 将用户信息附加到请求对象
 
 ### 2. adminAuthMiddleware (管理员鉴权)
+
 - 验证管理员密钥
 - 密钥配置在 .env 文件的 `ADMIN_SECRET_KEY`
 
 ### 3. checkGameName (游戏名检查)
+
 - 检查用户是否已绑定游戏名
 - 某些操作需要先绑定游戏名
 
 ### 4. checkCustomUploadLimit / checkAuthUploadLimit (上传限制检查)
+
 - 检查用户是否达到上传上限
 - 分别检查公共模型和私人模型
 
 ### 5. fileUploadMiddleware (文件上传)
+
 - 处理 multipart/form-data
 - 验证文件类型 (.ysm)
 - 限制文件大小
@@ -609,18 +697,21 @@ AUTO_RELOAD_ON_UPLOAD=true
 ## 核心业务流程
 
 ### 1. 用户注册/登录流程
+
 1. 用户提交用户名和密码
 2. 密码使用 bcrypt 加密存储
 3. 登录成功后生成 JWT Token
 4. Token 设置过期时间
 
 ### 2. 游戏名绑定流程
+
 1. 用户提交游戏名
 2. 生成验证码并发送到游戏内 (通过 RCON)
 3. 用户输入验证码验证
 4. 绑定成功后更新用户信息
 
 ### 3. 模型上传流程
+
 1. 用户选择 YSM 文件
 2. 计算文件 Hash
 3. 检查 Hash 是否已存在
@@ -631,12 +722,14 @@ AUTO_RELOAD_ON_UPLOAD=true
 8. 可选：通过 RCON 自动重载
 
 ### 4. 模型授权流程
+
 1. 用户选择要授权的模型
 2. 检查模型类型和权限
 3. 通过 RCON 发送授权命令到游戏服务器
 4. 创建授权记录
 
 ### 5. 管理员操作流程
+
 1. 管理员使用管理员密钥登录
 2. 执行管理操作（重置密码、删除模型等）
 3. 操作结果返回给管理员
@@ -655,23 +748,23 @@ YSM_MODEL_DIR/
 
 ## 错误码说明
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 | 请求成功 |
-| 400 | 请求参数错误 |
+| 状态码 | 说明          |
+| --- | ----------- |
+| 200 | 请求成功        |
+| 400 | 请求参数错误      |
 | 401 | 未授权/Token无效 |
-| 403 | 权限不足 |
-| 404 | 资源不存在 |
-| 409 | 资源冲突（如重复上传）|
-| 429 | 请求过于频繁 |
-| 500 | 服务器内部错误 |
+| 403 | 权限不足        |
+| 404 | 资源不存在       |
+| 409 | 资源冲突（如重复上传） |
+| 429 | 请求过于频繁      |
+| 500 | 服务器内部错误     |
 
 ## 开发注意事项
 
 1. **数据库迁移**: 修改 schema.prisma 后需要执行 `npx prisma migrate dev`
 2. **Prisma 生成**: 安装依赖后需要执行 `npx prisma generate`
 3. **RCON 配置**: 确保 Minecraft 服务器已启用 RCON 并配置正确
-4. **文件权限**: 确保 YSM_MODEL_DIR 目录有读写权限
+4. **文件权限**: 确保 YSM\_MODEL\_DIR 目录有读写权限
 5. **生产环境**: 建议使用 PM2 进行进程管理
 
 ## 前端开发建议
@@ -681,3 +774,4 @@ YSM_MODEL_DIR/
 3. **文件上传**: 使用 FormData，注意设置正确的 Content-Type
 4. **状态管理**: 建议使用 localStorage 存储 Token
 5. **路由守卫**: 需要登录的页面添加鉴权检查
+
