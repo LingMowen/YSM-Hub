@@ -1,8 +1,7 @@
-.vscode/
-.git/
-*.log
-tmp/
-.DS_Store
 node_modules/
-generated/
-
+dist/
+uploads/
+ysm_models/
+*.db
+.env
+.DS_Store

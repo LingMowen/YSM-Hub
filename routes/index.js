@@ -1,93 +1,183 @@
-/**
- * 路由配置文件
- * 定义API路由和中间件
- */
 import express from 'express';
 const router = express.Router();
 
-// 导入控制器
 import testController from '../app/Controller/testController.js';
 import userController from '../app/Controller/userController.js';
 import administratorController from '../app/Controller/administratorController.js';
 import modelController from '../app/Controller/modelController.js';
+import authController from '../app/Controller/authController.js';
+import adminController from '../app/Controller/adminController.js';
 
-// 导入安全中间件
 import securityMiddleware from '../app/Middleware/securityMiddleware.js';
-// 导入鉴权中间件
 import authMiddleware from '../app/Middleware/authMiddleware.js';
-// 导入管理员鉴权中间件
 import adminAuthMiddleware from '../app/Middleware/adminAuthMiddleware.js';
-// 导入文件上传中间件
 import uploadMiddleware from '../app/Middleware/fileUploadMiddleware.js';
-// 导入上传限制中间件
+
+import reviewerAuthMiddleware from '../app/Middleware/reviewerAuthMiddleware.js';
+import uploadImageMiddleware from '../app/Middleware/imageUploadMiddleware.js';
+import avatarUploadMiddleware from '../app/Middleware/avatarUploadMiddleware.js';
+import modelAccessMiddleware from '../app/Middleware/modelAccessMiddleware.js';
 import { checkCustomUploadLimit, checkAuthUploadLimit } from '../app/Middleware/uploadLimitMiddleware.js';
-// 导入游戏名检查中间件
 import checkGameName from '../app/Middleware/checkGameName.js';
 
-// 测试路由组
-// const testRouter = express.Router();
-// testRouter.get('/', testController.test);
-// testRouter.get('/auth', authMiddleware, testController.authTest);
-// testRouter.get('/rcon', testController.rconTest);
-// testRouter.get('/db', testController.dbtest);
-// router.use('/test', testRouter);
+router.post('/auth/login', securityMiddleware, authController.login);
+router.post('/auth/register', securityMiddleware, authController.register);
+router.post('/auth/verify-email', securityMiddleware, authMiddleware, authController.verifyEmail);
+router.post('/auth/logout', authMiddleware, authController.logout);
+router.get('/auth/profile', authMiddleware, authController.getProfile);
+router.post('/auth/upload-avatar', authMiddleware, avatarUploadMiddleware.single('avatar'), authController.uploadAvatar);
+router.get('/auth/whitelist', authMiddleware, authController.getWhitelist);
+router.get('/system-settings', authController.getSystemSettings);
 
-// 用户路由组
-const userRouter = express.Router();
-// 注册 - 参数: {name, password} - 返回: {id, name, createdAt}
-userRouter.post('/register', securityMiddleware, userController.register);
-// 登录 - 参数: {name, password} - 返回: {token, user: {id, name, gameName}}
-userRouter.post('/login', securityMiddleware, userController.login);
-// 登出 - 参数: 无 - 返回: 无
-userRouter.post('/logout', authMiddleware, userController.logout);
-// 获取当前登录用户信息 - 参数: 无 - 返回: {id, name, gameName, createdAt}
-userRouter.get('/info', authMiddleware, userController.info);
-// 更新游戏名称（发送验证码） - 参数: {gameName} - 返回: {token, expiresAt}
-userRouter.post('/updateGameName', authMiddleware, userController.updateGameName);
-// 验证游戏名称绑定 - 参数: {gameName, verificationCode} - 返回: {gameName}
-userRouter.post('/verifyGameName', authMiddleware, userController.verifyGameName);
-// 检查绑定状态 - 参数: 无 - 返回: {status, gameName?, expiresAt?, attempts?}
-userRouter.get('/bindingStatus', authMiddleware, userController.checkBindingStatus);
-// 修改密码 - 参数: {oldPassword, newPassword} - 返回: 无
-userRouter.post('/changePassword', authMiddleware, userController.changePassword);
-// 获取私人模型列表 - 参数: 无 - 返回: [{id, allowAuth, currentType, hash, fileName, createdAt, uploadedAt}]
-userRouter.get('/models/auth', authMiddleware, checkGameName, userController.getAuthModels);
-// 获取公共模型列表 - 参数: 无 - 返回: [{id, allowAuth, currentType, hash, fileName, createdAt, uploadedAt}]
-userRouter.get('/models/custom', authMiddleware, checkGameName, userController.getCustomModels);
-// 获取所有模型列表 - 参数: 无 - 返回: [{id, allowAuth, currentType, hash, fileName, createdAt, uploadedAt}]
-userRouter.get('/models/all', authMiddleware, checkGameName, userController.getAllModels);
-router.use('/user', userRouter);
+router.get('/models', authMiddleware, modelController.list);
+router.get('/models/:id', authMiddleware, modelAccessMiddleware, modelController.get);
+router.post('/models', authMiddleware, modelController.create);
+router.put('/models/:id', authMiddleware, modelAccessMiddleware, modelController.update);
+router.delete('/models/:id', authMiddleware, modelAccessMiddleware, modelController.delete);
+router.post('/models/upload', authMiddleware, uploadMiddleware.single('file'), modelController.upload);
+router.post('/models/upload-image', authMiddleware, uploadImageMiddleware.single('image'), modelController.uploadImage);
+router.post('/models/link', authMiddleware, modelController.link);
+router.post('/models/:id/unlink', authMiddleware, modelController.unlink);
+router.post('/models/:id/unlink-from-user', authMiddleware, modelController.unlinkFromUser);
+router.post('/models/:id/download-to-custom', authMiddleware, modelController.downloadToCustom);
+router.post('/models/:id/save-to-my-models', authMiddleware, modelController.saveToMyModels);
+router.get('/models/:id/download', authMiddleware, modelController.downloadFile);
+router.post('/models/:id/increment-download', authMiddleware, modelController.incrementDownloadCount);
+router.get('/models/:id/comments', authMiddleware, modelController.getComments);
+router.post('/models/:id/comments', authMiddleware, modelController.addComment);
+router.delete('/models/comments/:id', authMiddleware, modelController.deleteComment);
 
-// 管理员路由组
-const adminRouter = express.Router();
-// 重置密码 - 参数: {username} - 返回: {username, newPassword}
-adminRouter.post('/resetPassword', securityMiddleware, adminAuthMiddleware, administratorController.resetPassword);
-// 删除模型 - 参数: id(路径参数) - 返回: {modelId, fileName, currentType}
-adminRouter.delete('/delmodel/:id', securityMiddleware, adminAuthMiddleware, administratorController.deleteModel);
-// 根据文件名查找模型 - 参数: {fileName} - 返回: 模型信息及上传者信息
-adminRouter.post('/getmodel', securityMiddleware, adminAuthMiddleware, administratorController.getModelByFileName);
-// 更新用户上传限制 - 参数: {username, customUploadLimit?, authUploadLimit?} - 返回: {id, name, customUploadLimit, authUploadLimit, ...uploadStats}
-adminRouter.post('/updateUploadLimit', securityMiddleware, adminAuthMiddleware, administratorController.updateUserUploadLimit);
-// 通过用户名获取用户信息 - 参数: {username} - 返回: 用户详细信息及上传统计
-adminRouter.post('/getUserInfoByUsername', securityMiddleware, adminAuthMiddleware, administratorController.getUserInfoByUsername);
-// 通过游戏名获取用户信息 - 参数: {gameName} - 返回: 用户详细信息及上传统计
-adminRouter.post('/getUserInfoByGameName', securityMiddleware, adminAuthMiddleware, administratorController.getUserInfoByGameName);
-router.use('/admin', adminRouter);
+router.get('/users', authMiddleware, adminAuthMiddleware, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const users = await userController.list(req, res);
+  } catch (err) {
+    console.error('获取用户列表错误:', err);
+    return res.status(500).json({ success: false, message: '获取用户列表失败' });
+  }
+});
+router.get('/users/admins', authMiddleware, adminAuthMiddleware, async (req, res) => {
+  try {
+    const prisma = (await import('../src/utils/prisma.js')).default;
+    const admins = await prisma.User.findMany({
+      where: { role: 'admin' },
+      select: { id: true, name: true, email: true, gameName: true, createdAt: true }
+    });
+    return res.json({ success: true, data: admins });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: '获取管理员列表失败' });
+  }
+});
+router.get('/users/:id', authMiddleware, adminAuthMiddleware, async (req, res) => {
+  try {
+    const prisma = (await import('../src/utils/prisma.js')).default;
+    const user = await prisma.User.findFirst({
+      where: { id: parseInt(req.params.id) },
+      select: { id: true, name: true, email: true, gameName: true, role: true, emailVerified: true, createdAt: true }
+    });
+    if (!user) return res.status(404).json({ success: false, message: '用户不存在' });
+    return res.json({ success: true, data: user });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: '获取用户信息失败' });
+  }
+});
+router.put('/users/:id', authMiddleware, adminAuthMiddleware, async (req, res) => {
+  try {
+    const prisma = (await import('../src/utils/prisma.js')).default;
+    const { username, gameName, role } = req.body;
+    const updateData = {};
 
-// YSM模型路由组
-const ysmRouter = express.Router();
-// Hash验证 - 参数: {hash, type} - 返回: {exists, modelId?, hash}
-ysmRouter.post('/hashVerification', authMiddleware, checkGameName, modelController.hashVerification);
-// 上传公共模型 - 参数: file(ysm文件) - 返回: {modelId, hash, fileName, filePath}
-ysmRouter.post('/custom', authMiddleware, checkGameName, checkCustomUploadLimit, uploadMiddleware.single('file'), modelController.custom);
-// 上传私人模型 - 参数: file(ysm文件) - 返回: {modelId, hash, fileName, filePath}
-ysmRouter.post('/auth', authMiddleware, checkGameName, checkAuthUploadLimit, uploadMiddleware.single('file'), modelController.auth);
-// 授权模型 - 参数: id(路径参数) - 返回: {rconResponse}
-ysmRouter.post('/auth/:id', authMiddleware, checkGameName, modelController.authorizeModel);
-// 解除授权模型 - 参数: id(路径参数) - 返回: {rconResponse}
-ysmRouter.post('/deauth/:id', authMiddleware, checkGameName, modelController.deauthorizeModel);
-// 删除私人模型 - 参数: id(路径参数) - 返回: 无
-ysmRouter.delete('/auth/:id', authMiddleware, checkGameName, modelController.deleteAuthModel);
-router.use('/ysm', ysmRouter);
+    if (username !== undefined) {
+      const existingUser = await prisma.User.findFirst({
+        where: { name: username, NOT: { id: parseInt(req.params.id) } }
+      });
+      if (existingUser) {
+        return res.status(400).json({ success: false, message: '用户名已存在' });
+      }
+      updateData.name = username;
+    }
+    if (gameName !== undefined) updateData.gameName = gameName;
+    if (role !== undefined) updateData.role = role;
+
+    const user = await prisma.User.update({
+      where: { id: parseInt(req.params.id) },
+      data: updateData,
+      select: { id: true, name: true, email: true, gameName: true, role: true }
+    });
+    return res.json({ success: true, data: user });
+  } catch (err) {
+    console.error('更新用户错误:', err);
+    return res.status(500).json({ success: false, message: '更新用户失败' });
+  }
+});
+router.delete('/users/:id', authMiddleware, adminAuthMiddleware, async (req, res) => {
+  try {
+    const prisma = (await import('../src/utils/prisma.js')).default;
+    await prisma.User.delete({ where: { id: parseInt(req.params.id) } });
+    return res.json({ success: true, message: '用户已删除' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: '删除用户失败' });
+  }
+});
+
+// 游戏名绑定相关路由
+router.post('/users/game-name', authMiddleware, userController.updateGameName);
+router.post('/users/game-name/verify', authMiddleware, userController.verifyGameName);
+router.get('/users/game-name/status', authMiddleware, userController.checkBindingStatus);
+
+router.get('/admin/settings', authMiddleware, adminAuthMiddleware, adminController.getSettings);
+router.put('/admin/settings', authMiddleware, adminAuthMiddleware, adminController.updateSettings);
+router.get('/admin/stats', authMiddleware, adminAuthMiddleware, adminController.getStats);
+router.get('/admin/system-info', authMiddleware, adminAuthMiddleware, adminController.getSystemInfo);
+router.get('/admin/whitelist-settings', authMiddleware, adminAuthMiddleware, adminController.getWhitelistSettings);
+router.put('/admin/whitelist-settings', authMiddleware, adminAuthMiddleware, adminController.updateWhitelistSettings);
+router.get('/admin/smtp-settings', authMiddleware, adminAuthMiddleware, adminController.getSmtpSettings);
+router.put('/admin/smtp-settings', authMiddleware, adminAuthMiddleware, adminController.updateSmtpSettings);
+
+router.get('/rcon/status', authMiddleware, adminAuthMiddleware, async (req, res) => {
+  try {
+    const baseController = (await import('../app/Controller/baseController.js')).default();
+    
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('RCON connection timeout')), 5000);
+    });
+    
+    const result = await Promise.race([
+      baseController.executeRCONCommand('list'),
+      timeoutPromise
+    ]);
+    
+    const connected = result !== null && result.success !== false;
+    return res.json({ success: true, connected });
+  } catch (err) {
+    return res.json({ success: true, connected: false });
+  }
+});
+router.post('/rcon/send', authMiddleware, adminAuthMiddleware, async (req, res) => {
+  try {
+    const { command } = req.body;
+    if (!command) return res.status(400).json({ success: false, message: '缺少命令' });
+    const baseController = (await import('../app/Controller/baseController.js')).default();
+    const result = await baseController.executeRCONCommand(command);
+    return res.json({ success: true, result: result?.response || '' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: '命令执行失败' });
+  }
+});
+
+// 高级管理员功能
+router.post('/admin/reset-password', authMiddleware, adminAuthMiddleware, administratorController.resetPassword);
+router.delete('/admin/models/:id', authMiddleware, adminAuthMiddleware, administratorController.deleteModel);
+router.post('/admin/models/by-filename', authMiddleware, adminAuthMiddleware, administratorController.getModelByFileName);
+router.get('/admin/models', authMiddleware, adminAuthMiddleware, administratorController.getAllModels);
+router.put('/admin/users/upload-limit', authMiddleware, adminAuthMiddleware, administratorController.updateUserUploadLimit);
+router.post('/admin/users/by-username', authMiddleware, adminAuthMiddleware, administratorController.getUserInfoByUsername);
+router.post('/admin/users/by-game-name', authMiddleware, adminAuthMiddleware, administratorController.getUserInfoByGameName);
+
+// 审核相关路由（管理员或审核员可访问）
+router.get('/admin/review/pending', authMiddleware, reviewerAuthMiddleware, administratorController.getPendingReviewModels);
+router.put('/admin/review/:id', authMiddleware, reviewerAuthMiddleware, administratorController.reviewModel);
+router.post('/admin/reviewers', authMiddleware, adminAuthMiddleware, administratorController.setReviewer);
+router.get('/admin/reviewers', authMiddleware, adminAuthMiddleware, administratorController.getReviewers);
 
 export default router;

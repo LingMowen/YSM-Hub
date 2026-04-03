@@ -73,9 +73,15 @@ export function parseYsmMetadata(fileBuffer) {
   return metadata;
 }
 
-export async function saveYsmFile(fileBuffer, fileName, dirType = 'custom') {
+export async function saveYsmFile(fileBuffer, fileName, dirType = 'custom', userId = null) {
   const baseDir = process.env.YSM_MODEL_DIR || './ysm_models';
-  const targetDir = path.join(baseDir, dirType);
+  
+  let targetDir;
+  if (userId) {
+    targetDir = path.join(baseDir, 'users', String(userId), dirType);
+  } else {
+    targetDir = path.join(baseDir, dirType);
+  }
 
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });

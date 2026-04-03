@@ -427,6 +427,31 @@ function createUserController() {
     }
   }
 
+  async function list(req, res) {
+    try {
+      const limit = parseInt(req.query.limit) || 50;
+      const users = await baseController.prisma.User.findMany({
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          gameName: true,
+          role: true,
+          isReviewer: true,
+          emailVerified: true,
+          customUploadLimit: true,
+          authUploadLimit: true,
+          createdAt: true
+        },
+        take: limit
+      });
+      return baseController.success(res, { users });
+    } catch (err) {
+      console.error('获取用户列表错误:', err);
+      return baseController.error(res, '获取用户列表失败', 500);
+    }
+  }
+
   async function changePassword(req, res) {
     try {
       const { oldPassword, newPassword } = req.body;
@@ -479,7 +504,8 @@ function createUserController() {
     verifyGameName,
     checkBindingStatus,
     info,
-    changePassword
+    changePassword,
+    list
   };
 }
 

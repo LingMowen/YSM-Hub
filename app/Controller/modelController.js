@@ -1,405 +1,1091 @@
 import createController from './baseController.js';
+import prisma from '../../src/utils/prisma.js';
 import { fixFilenameEncoding } from '../../src/utils/common.js';
 
 function createModelController() {
   const baseController = createController();
 
-  async function hashVerification(req, res) {
+  async function list(req, res) {
     try {
-      const { hash, type } = req.body;
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const search = req.query.search;
+      const linked = req.query.linked;
+      const type = req.query.type;
+      const uploaderId = req.query.uploaderId ? parseInt(req.query.uploaderId) : null;
+      const sort = req.query.sort || 'newest';
+      const userId = req.user?.id;
+      const isAdmin = req.user?.role === 'admin';
+      const isReviewer = req.user?.isReviewer;
 
-      if (!hash) {
-        return baseController.error(res, '请提供hash参数', 400);
-      }
+      const reviewEnabled = await baseController.getSystemSetting('reviewEnabled') === 'true';
 
-      if (!type || (type !== 'custom' && type !== 'auth')) {
-        return baseController.error(res, '请提供有效的type参数（custom或auth）', 400);
-      }
+      console.log('Model list - userId:', userId, 'isAdmin:', isAdmin, 'role:', req.user?.role, 'type:', type);
 
-      const existingModel = await baseController.findModelByHash(hash, true);
+      const where = {};
 
-      if (existingModel) {
-        if (existingModel.currentType !== type) {
-          if ((existingModel.allowAuth === true || existingModel.allowAuth === 1) && existingModel.currentType === 'custom' && type === 'auth') {
-            return baseController.error(res, '当前模型允许私人渠道上传，但已被人上传至公共模型', 400);
-          }
-          
-          if (existingModel.currentType === 'auth' && type === 'custom') {
-            const uploadLimitCheck = await baseController.checkUserUploadLimit(req.user.id, 'custom');
-            if (!uploadLimitCheck.valid) {
-              return baseController.error(res, uploadLimitCheck.error, uploadLimitCheck.status);
-            }
-
-            await baseController.prisma.modelUploader.deleteMany({
-              where: {
-                modelId: existingModel.id
-              }
-            });
-
-            await baseController.prisma.Model.update({
-              where: { id: existingModel.id },
-              data: { currentType: 'custom' }
-            });
-
-            await baseController.addUploaderToModel(existingModel.id, req.user.id);
-
-            baseController.moveModelFile(existingModel.fileName, 'auth', 'custom');
-
-            await baseController.reloadModels();
-
-            return baseController.error(res, '模型已转为公共模型，您已被添加为上传者', 410, {
-              exists: true,
-              modelId: existingModel.id,
-              hash: hash
-            });
-          }
-          
-          let expectedType;
-          if (existingModel.currentType === 'custom') {
-            expectedType = '公共';
-          } else {
-            expectedType = '私有';
-          }
-          
-          let actualType;
-          if (type === 'custom') {
-            actualType = '公共';
-          } else {
-            actualType = '私有';
-          }
-          
-          return baseController.error(res, `模型存在，但该模型是${expectedType}模型，不应该通过${actualType}渠道上传`, 400);
-        }
-
-        if (type === 'custom') {
-          return baseController.error(res, '当前公共模型已经存在', 410, {
-            exists: true,
-            modelId: existingModel.id,
-            hash: hash
-          });
-        } else {
-          const isAlreadyUploader = baseController.isUserUploader(existingModel, req.user.id);
-
-          if (!isAlreadyUploader) {
-            const uploadLimitCheck = await baseController.checkUserUploadLimit(req.user.id, 'auth');
-            if (!uploadLimitCheck.valid) {
-              return baseController.error(res, uploadLimitCheck.error, uploadLimitCheck.status);
-            }
-
-            await baseController.addUploaderToModel(existingModel.id, req.user.id);
-          }
-
-          return baseController.error(res, '模型已存在，已将您添加为上传者', 410, {
-              exists: true,
-              modelId: existingModel.id,
-              hash: hash
-            });
+      if (type !== 'custom') {
+        if (!isAdmin && userId) {
+          where.uploaders = { some: { userId } };
         }
       } else {
-        return baseController.success(res, {
-          exists: false,
-          hash: hash
-        }, '模型不存在，可以上传');
+        where.currentType = 'custom';
+        if (reviewEnabled) {
+          where.reviewStatus = 'approved';
+        }
+        if (uploaderId) {
+          where.uploaders = { some: { userId: uploaderId } };
+        }
       }
+
+      if (isAdmin || isReviewer) {
+        delete where.reviewStatus;
+      }
+
+      if (search) {
+        where.fileName = { contains: search };
+      }
+
+      const orderBy = {};
+      switch (sort) {
+        case 'oldest':
+          orderBy.createdAt = 'asc';
+          break;
+        case 'name':
+          orderBy.fileName = 'asc';
+          break;
+        case 'size':
+          orderBy.fileSize = 'desc';
+          break;
+        case 'downloads':
+          orderBy.downloadCount = 'desc';
+          break;
+        default:
+          orderBy.createdAt = 'desc';
+      }
+
+      const models = await prisma.Model.findMany({
+        where,
+        include: {
+          uploaders: {
+            include: {
+              user: {
+                select: { id: true, name: true, gameName: true }
+              }
+            }
+          },
+          authorizations: {
+            select: { gameName: true }
+          }
+        },
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit
+      });
+
+      const modelIds = models.map(m => m.id);
+
+      let commentsMap = {};
+      if (modelIds.length > 0) {
+        const allComments = await prisma.ModelComment.findMany({
+          where: { modelId: { in: modelIds }, rating: { gt: 0 } },
+          select: { modelId: true, rating: true }
+        });
+
+        for (const comment of allComments) {
+          if (!commentsMap[comment.modelId]) {
+            commentsMap[comment.modelId] = { ratings: [], total: 0, sum: 0 };
+          }
+          commentsMap[comment.modelId].ratings.push(comment.rating);
+          commentsMap[comment.modelId].sum += comment.rating;
+          commentsMap[comment.modelId].total += 1;
+        }
+
+        for (const mid of Object.keys(commentsMap)) {
+          const data = commentsMap[mid];
+          commentsMap[mid] = {
+            totalRatings: data.total,
+            averageRating: data.sum / data.total
+          };
+        }
+      }
+
+      const result = models.map(model => ({
+        id: model.id,
+        name: model.fileName,
+        hash: model.hash,
+        type: model.currentType,
+        fileName: model.fileName,
+        imageUrl: model.imageUrl,
+        description: model.description,
+        downloadCount: model.downloadCount,
+        saveCount: model.saveCount,
+        gameName: model.authorizations?.[0]?.gameName || null,
+        createdAt: model.createdAt,
+        uploaders: model.uploaders.map(u => u.user),
+        ratingStats: commentsMap[model.id] || { totalRatings: 0, averageRating: 0 }
+      }));
+
+      const total = await prisma.Model.count({ where });
+
+      return baseController.success(res, {
+        models: result,
+        total,
+        page,
+        totalPages: Math.ceil(total / limit)
+      });
     } catch (err) {
-      console.error('检查模型错误:', err);
-      return baseController.error(res, '检查模型失败，请稍后再试', 500);
+      console.error('获取模型列表错误:', err);
+      return baseController.error(res, '获取模型列表失败', 500);
     }
   }
 
-  async function custom(req, res) {
+  async function get(req, res) {
     try {
-      if (!req.file) {
-        return baseController.error(res, '请上传.ysm文件', 400);
-      }
-
-      const fileBuffer = req.file.buffer;
-      let fileName = req.file.originalname;
-      fileName = fixFilenameEncoding(fileName);
-      const metadata = baseController.parseYsmMetadata(fileBuffer);
-
-      if (!metadata.hash) {
-        return baseController.error(res, '文件格式错误，未找到hash', 400);
-      }
-
-      const existingFileModel = await baseController.prisma.Model.findFirst({
-        where: { fileName }
+      const { id } = req.params;
+      const model = await prisma.Model.findFirst({
+        where: { id: parseInt(id) },
+        include: {
+          uploaders: {
+            include: {
+              user: {
+                select: { id: true, name: true, gameName: true }
+              }
+            }
+          }
+        }
       });
 
-      if (existingFileModel && existingFileModel.hash !== metadata.hash) {
-        return baseController.error(res, '当前文件名已存在，请更改文件名', 423);
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
       }
 
-      const existingModel = await baseController.findModelByHash(metadata.hash);
+      return baseController.success(res, model);
+    } catch (err) {
+      console.error('获取模型详情错误:', err);
+      return baseController.error(res, '获取模型详情失败', 500);
+    }
+  }
+
+  async function create(req, res) {
+    try {
+      const { name, description } = req.body;
+      const userId = req.user.id;
+
+      const newModel = await baseController.createModelWithUploader(
+        {
+          fileName: name || `model_${Date.now()}`,
+          description: description || '',
+          currentType: 'auth'
+        },
+        userId
+      );
+
+      return baseController.success(res, newModel, '模型创建成功');
+    } catch (err) {
+      console.error('创建模型错误:', err);
+      return baseController.error(res, '模型创建失败', 500);
+    }
+  }
+
+  async function update(req, res) {
+    try {
+      const { id } = req.params;
+      const { name, description } = req.body;
+      const userId = req.user.id;
+      const isAdmin = req.user.role === 'admin';
+
+      const model = await prisma.Model.findFirst({
+        where: { id: parseInt(id) }
+      });
+
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
+      }
+
+      if (!isAdmin) {
+        const uploader = await prisma.ModelUploader.findFirst({
+          where: { modelId: parseInt(id), userId }
+        });
+        if (!uploader) {
+          return baseController.error(res, '无权限修改此模型', 403);
+        }
+      }
+
+      await prisma.Model.update({
+        where: { id: parseInt(id) },
+        data: {
+          fileName: name || model.fileName,
+          description: description !== undefined ? description : model.description
+        }
+      });
+
+      return baseController.success(res, null, '模型更新成功');
+    } catch (err) {
+      console.error('更新模型错误:', err);
+      return baseController.error(res, '模型更新失败', 500);
+    }
+  }
+
+  async function deleteModel(req, res) {
+    try {
+      const { id } = req.params;
+      const model = await prisma.Model.findFirst({
+        where: { id: parseInt(id) }
+      });
+
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
+      }
+
+      await baseController.deleteModelFile(model.hash, model.type, model.uploadedBy);
+
+      await prisma.Model.delete({
+        where: { id: parseInt(id) }
+      });
+
+      return baseController.success(res, null, '模型删除成功');
+    } catch (err) {
+      console.error('删除模型错误:', err);
+      return baseController.error(res, '模型删除失败', 500);
+    }
+  }
+
+  async function upload(req, res) {
+    try {
+      if (!req.file) {
+        return baseController.error(res, '请上传模型文件', 400);
+      }
+
+      const { buffer } = req.file;
+      const metadata = await baseController.parseYsmMetadata(buffer);
+
+      if (!metadata) {
+        return baseController.error(res, '无效的 YSM 文件', 400);
+      }
+
+      console.log('上传模型元数据:', metadata);
+
+      const fileName = fixFilenameEncoding(req.file.originalname).replace('.ysm', '');
+      const fileBuffer = Buffer.from(buffer);
+
+      const existingModel = await prisma.Model.findFirst({
+        where: {
+          hash: metadata.hash,
+          currentType: 'custom',
+          uploaders: { some: { userId: req.user.id } }
+        }
+      });
 
       if (existingModel) {
-        if (existingModel.currentType === 'auth') {
-          const uploadLimitCheck = await baseController.checkUserUploadLimit(req.user.id, 'custom');
-          if (!uploadLimitCheck.valid) {
-            return baseController.error(res, uploadLimitCheck.error, uploadLimitCheck.status);
-          }
-
-          await baseController.prisma.modelUploader.deleteMany({
-            where: {
-              modelId: existingModel.id
-            }
-          });
-
-          await baseController.prisma.Model.update({
-            where: { id: existingModel.id },
-            data: { 
-              currentType: 'custom',
-              allowAuth: !metadata.free
-            }
-          });
-
-          await baseController.addUploaderToModel(existingModel.id, req.user.id);
-
-          baseController.moveModelFile(existingModel.fileName, 'auth', 'custom');
-
-          await baseController.reloadModels();
-          return baseController.success(res, {
-            modelId: existingModel.id,
-            hash: metadata.hash,
-            fileName: existingModel.fileName,
-            filePath: ''
-          }, '模型已转为公共模型，您已被添加为上传者');
-        }
-        return baseController.error(res, '模型出现重复或服务器处理错误', 540);
+        return baseController.error(res, '该模型已存在，无法重复上传', 400);
       }
 
+      const reviewEnabled = await baseController.getSystemSetting('reviewEnabled') === 'true';
+      const description = req.body.description || '';
       const newModel = await baseController.createModelWithUploader(
         {
           allowAuth: !metadata.free,
           currentType: 'custom',
           hash: metadata.hash,
-          fileName: fileName
+          fileName: fileName,
+          fileSize: fileBuffer.length,
+          reviewStatus: reviewEnabled ? 'pending' : 'approved',
+          description: description
         },
         req.user.id
       );
 
-      const filePath = await baseController.saveYsmFile(fileBuffer, fileName, 'custom');
-      
+      const filePath = await baseController.saveYsmFile(fileBuffer, fileName, 'custom', req.user.id);
       await baseController.reloadModels();
+
+      const message = reviewEnabled
+        ? '模型上传成功，正在等待审核'
+        : '模型上传成功';
+
+      console.log(`公共模型上传成功 - 用户: ${req.user.name} (ID: ${req.user.id}) 模型: ${fileName} 模型ID: ${newModel.id} 审核状态: ${reviewEnabled ? '待审核' : '已通过'}`);
 
       return baseController.success(res, {
         modelId: newModel.id,
         hash: metadata.hash,
         fileName: fileName,
-        filePath: filePath
-      }, '模型上传成功');
+        filePath: filePath,
+        reviewRequired: reviewEnabled
+      }, message);
     } catch (err) {
       console.error('上传模型错误:', err);
-      return baseController.error(res, '模型出现重复或服务器处理错误', 540);
+      return baseController.error(res, '模型上传失败', 500);
+    }
+  }
+
+  async function uploadImage(req, res) {
+    try {
+      if (!req.file) {
+        return baseController.error(res, '请上传图片', 400);
+      }
+
+      const { modelId } = req.body;
+      if (!modelId) {
+        return baseController.error(res, '缺少模型ID', 400);
+      }
+
+      const imageMaxSize = parseInt(await baseController.getSystemSetting('reviewImageMaxSize')) || 10;
+      const maxSizeBytes = imageMaxSize * 1024 * 1024;
+
+      if (req.file.size > maxSizeBytes) {
+        return baseController.error(res, `图片大小不能超过 ${imageMaxSize}MB`, 400);
+      }
+
+      const model = await prisma.Model.findFirst({
+        where: { id: parseInt(modelId) }
+      });
+
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
+      }
+
+      const imageUrl = `/uploads/images/${req.file.filename}`;
+
+      await prisma.Model.update({
+        where: { id: parseInt(modelId) },
+        data: { imageUrl }
+      });
+
+      return baseController.success(res, { imageUrl }, '图片上传成功');
+    } catch (err) {
+      console.error('上传图片错误:', err);
+      return baseController.error(res, '图片上传失败', 500);
+    }
+  }
+
+  async function link(req, res) {
+    try {
+      const { modelId, gameName } = req.body;
+      const userId = req.user.id;
+
+      if (!modelId || !gameName) {
+        return baseController.error(res, '缺少参数', 400);
+      }
+
+      const model = await prisma.Model.findFirst({
+        where: { id: parseInt(modelId) }
+      });
+
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
+      }
+
+      if (model.currentType !== 'auth') {
+        return baseController.error(res, '只有私人模型可以关联', 400);
+      }
+
+      const existingBinding = await prisma.NameBinding.findFirst({
+        where: { userId, gameName }
+      });
+
+      if (existingBinding) {
+        return baseController.error(res, '该游戏名已被其他模型使用', 400);
+      }
+
+      const existingAuth = await prisma.ModelAuthorization.findFirst({
+        where: { modelId: parseInt(modelId), gameName }
+      });
+
+      if (existingAuth) {
+        return baseController.error(res, '该模型已关联此游戏名', 400);
+      }
+
+      await prisma.ModelAuthorization.create({
+        data: {
+          modelId: parseInt(modelId),
+          gameName
+        }
+      });
+
+      await prisma.ModelUploader.create({
+        data: {
+          modelId: parseInt(modelId),
+          userId
+        }
+      });
+
+      await baseController.reloadModels();
+
+      console.log(`模型关联成功 - 模型ID: ${modelId} 游戏名: ${gameName} 用户ID: ${userId}`);
+
+      return baseController.success(res, null, '模型关联成功');
+    } catch (err) {
+      console.error('关联模型错误:', err);
+      return baseController.error(res, '模型关联失败', 500);
+    }
+  }
+
+  async function unlink(req, res) {
+    try {
+      const modelId = parseInt(req.query.modelId);
+      const userId = req.user.id;
+      const isAdmin = req.user.role === 'admin';
+
+      if (!modelId) {
+        return baseController.error(res, '缺少模型ID', 400);
+      }
+
+      const uploader = await prisma.ModelUploader.findFirst({
+        where: { modelId, userId }
+      });
+
+      if (!uploader && !isAdmin) {
+        return baseController.error(res, '无权限解除此关联', 403);
+      }
+
+      const auths = await prisma.ModelAuthorization.findMany({
+        where: { modelId }
+      });
+
+      for (const auth of auths) {
+        await prisma.NameBinding.deleteMany({
+          where: { gameName: auth.gameName }
+        });
+      }
+
+      await prisma.ModelAuthorization.deleteMany({
+        where: { modelId }
+      });
+
+      await prisma.ModelUploader.deleteMany({
+        where: { modelId, userId }
+      });
+
+      await baseController.reloadModels();
+
+      return baseController.success(res, null, '解除关联成功');
+    } catch (err) {
+      console.error('解除关联错误:', err);
+      return baseController.error(res, '解除关联失败', 500);
+    }
+  }
+
+  async function hashVerification(req, res) {
+    try {
+      const { hash } = req.body;
+
+      if (!hash) {
+        return baseController.error(res, '缺少 hash 参数', 400);
+      }
+
+      const model = await prisma.Model.findFirst({
+        where: { hash }
+      });
+
+      if (model) {
+        return baseController.success(res, {
+          exists: true,
+          modelId: model.id,
+          fileName: model.fileName
+        });
+      } else {
+        return baseController.success(res, { exists: false });
+      }
+    } catch (err) {
+      console.error('哈希验证错误:', err);
+      return baseController.error(res, '验证失败', 500);
+    }
+  }
+
+  async function custom(req, res) {
+    try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const search = req.query.search;
+      const sort = req.query.sort || 'newest';
+      const uploaderId = req.query.uploaderId ? parseInt(req.query.uploaderId) : null;
+
+      const reviewEnabled = await baseController.getSystemSetting('reviewEnabled') === 'true';
+
+      const where = { currentType: 'custom' };
+
+      if (reviewEnabled) {
+        where.reviewStatus = 'approved';
+      }
+
+      if (uploaderId) {
+        where.uploaders = { some: { userId: uploaderId } };
+      }
+
+      if (search) {
+        where.fileName = { contains: search };
+      }
+
+      const orderBy = {};
+      switch (sort) {
+        case 'oldest':
+          orderBy.createdAt = 'asc';
+          break;
+        case 'name':
+          orderBy.fileName = 'asc';
+          break;
+        case 'downloads':
+          orderBy.downloadCount = 'desc';
+          break;
+        default:
+          orderBy.createdAt = 'desc';
+      }
+
+      const [models, total] = await Promise.all([
+        prisma.Model.findMany({
+          where,
+          include: {
+            uploaders: {
+              include: {
+                user: {
+                  select: { id: true, name: true, gameName: true }
+                }
+              }
+            }
+          },
+          orderBy,
+          skip: (page - 1) * limit,
+          take: limit
+        }),
+        prisma.Model.count({ where })
+      ]);
+
+      const modelIds = models.map(m => m.id);
+
+      let commentsMap = {};
+      if (modelIds.length > 0) {
+        const allComments = await prisma.ModelComment.findMany({
+          where: { modelId: { in: modelIds }, rating: { gt: 0 } },
+          select: { modelId: true, rating: true }
+        });
+
+        for (const comment of allComments) {
+          if (!commentsMap[comment.modelId]) {
+            commentsMap[comment.modelId] = { ratings: [], total: 0, sum: 0 };
+          }
+          commentsMap[comment.modelId].ratings.push(comment.rating);
+          commentsMap[comment.modelId].sum += comment.rating;
+          commentsMap[comment.modelId].total += 1;
+        }
+
+        for (const mid of Object.keys(commentsMap)) {
+          const data = commentsMap[mid];
+          commentsMap[mid] = {
+            totalRatings: data.total,
+            averageRating: data.sum / data.total
+          };
+        }
+      }
+
+      const result = models.map(model => ({
+        id: model.id,
+        name: model.fileName,
+        hash: model.hash,
+        type: model.currentType,
+        fileName: model.fileName,
+        imageUrl: model.imageUrl,
+        description: model.description,
+        downloadCount: model.downloadCount,
+        saveCount: model.saveCount,
+        createdAt: model.createdAt,
+        uploaders: model.uploaders.map(u => u.user),
+        ratingStats: commentsMap[model.id] || { totalRatings: 0, averageRating: 0 }
+      }));
+
+      return baseController.success(res, {
+        models: result,
+        total,
+        page,
+        totalPages: Math.ceil(total / limit)
+      });
+    } catch (err) {
+      console.error('获取公共模型列表错误:', err);
+      return baseController.error(res, '获取模型列表失败', 500);
     }
   }
 
   async function auth(req, res) {
     try {
-      if (!req.file) {
-        return baseController.error(res, '请上传.ysm文件', 400);
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const gameName = req.user.gameName;
+      const sort = req.query.sort || 'newest';
+
+      if (!gameName) {
+        return baseController.success(res, { models: [], total: 0, page, totalPages: 0 });
       }
 
-      const fileBuffer = req.file.buffer;
-      let fileName = req.file.originalname;
-      fileName = fixFilenameEncoding(fileName);
-      const metadata = baseController.parseYsmMetadata(fileBuffer);
-
-      if (!metadata.hash) {
-        return baseController.error(res, '文件格式错误，未找到hash', 400);
+      const orderBy = {};
+      switch (sort) {
+        case 'oldest':
+          orderBy.createdAt = 'asc';
+          break;
+        case 'name':
+          orderBy.fileName = 'asc';
+          break;
+        default:
+          orderBy.createdAt = 'desc';
       }
 
-      if (metadata.free) {
-        return baseController.error(res, '该模型不支持私有上传', 400);
-      }
+      const [models, total] = await Promise.all([
+        prisma.Model.findMany({
+          where: { currentType: 'auth' },
+          include: {
+            authorizations: {
+              where: { gameName }
+            },
+            uploaders: {
+              include: {
+                user: {
+                  select: { id: true, name: true, gameName: true }
+                }
+              }
+            }
+          },
+          orderBy,
+          skip: (page - 1) * limit,
+          take: limit
+        }),
+        prisma.Model.count({ where: { currentType: 'auth' } })
+      ]);
 
-      const existingFileModel = await baseController.prisma.Model.findFirst({
-        where: { fileName }
-      });
+      const filtered = models.filter(m => m.authorizations.length > 0);
 
-      if (existingFileModel && existingFileModel.hash !== metadata.hash) {
-        return baseController.error(res, '当前文件名已存在，请更改文件名', 423);
-      }
+      const modelIds = filtered.map(m => m.id);
 
-      const existingModel = await baseController.findModelByHash(metadata.hash);
+      let commentsMap = {};
+      if (modelIds.length > 0) {
+        const allComments = await prisma.ModelComment.findMany({
+          where: { modelId: { in: modelIds }, rating: { gt: 0 } },
+          select: { modelId: true, rating: true }
+        });
 
-      if (existingModel) {
-        if ((existingModel.allowAuth === true || existingModel.allowAuth === 1) && existingModel.currentType === 'custom') {
-          return baseController.error(res, '当前模型允许私人渠道上传，但已被人上传至公共模型', 400);
+        for (const comment of allComments) {
+          if (!commentsMap[comment.modelId]) {
+            commentsMap[comment.modelId] = { ratings: [], total: 0, sum: 0 };
+          }
+          commentsMap[comment.modelId].ratings.push(comment.rating);
+          commentsMap[comment.modelId].sum += comment.rating;
+          commentsMap[comment.modelId].total += 1;
         }
-        return baseController.error(res, '模型出现重复或服务器处理错误', 540);
+
+        for (const mid of Object.keys(commentsMap)) {
+          const data = commentsMap[mid];
+          commentsMap[mid] = {
+            totalRatings: data.total,
+            averageRating: data.sum / data.total
+          };
+        }
       }
 
-      const newModel = await baseController.createModelWithUploader(
-        {
-          allowAuth: metadata.free,
-          currentType: 'auth',
-          hash: metadata.hash,
-          fileName: fileName
-        },
-        req.user.id
-      );
-
-      const filePath = await baseController.saveYsmFile(fileBuffer, fileName, 'auth');
-      
-      await baseController.reloadModels();
+      const result = filtered.map(model => ({
+        id: model.id,
+        name: model.fileName,
+        hash: model.hash,
+        type: model.currentType,
+        fileName: model.fileName,
+        imageUrl: model.imageUrl,
+        description: model.description,
+        downloadCount: model.downloadCount,
+        saveCount: model.saveCount,
+        createdAt: model.createdAt,
+        uploaders: model.uploaders.map(u => u.user),
+        ratingStats: commentsMap[model.id] || { totalRatings: 0, averageRating: 0 }
+      }));
 
       return baseController.success(res, {
-        modelId: newModel.id,
-        hash: metadata.hash,
-        fileName: fileName,
-        filePath: filePath
-      }, '模型上传成功');
+        models: result,
+        total: filtered.length,
+        page,
+        totalPages: Math.ceil(filtered.length / limit)
+      });
     } catch (err) {
-      console.error('上传模型错误:', err);
-      return baseController.error(res, '模型出现重复或服务器处理错误', 540);
+      console.error('获取授权模型列表错误:', err);
+      return baseController.error(res, '获取模型列表失败', 500);
     }
   }
 
   async function authorizeModel(req, res) {
     try {
-      const modelId = parseInt(req.params.id);
+      const { modelId, gameName } = req.body;
 
-      if (!modelId) {
-        return baseController.error(res, '请提供有效的模型ID', 400);
+      if (!modelId || !gameName) {
+        return baseController.error(res, '缺少参数', 400);
       }
 
-      const modelValidation = await baseController.validateModel(modelId, 'auth');
-      if (!modelValidation.valid) {
-        return baseController.error(res, modelValidation.error, modelValidation.status);
+      const model = await prisma.Model.findFirst({
+        where: { id: parseInt(modelId) }
+      });
+
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
       }
 
-      const isUploader = await baseController.validateUploader(modelId, req.user.id);
-      if (!isUploader) {
-        return baseController.error(res, '您没有权限授权此模型', 403);
+      const existingBinding = await prisma.NameBinding.findFirst({
+        where: { gameName }
+      });
+
+      if (existingBinding) {
+        return baseController.error(res, '该游戏名已被其他模型使用', 400);
       }
 
-      const command = `ysm auth ${req.user.gameName} add "${modelValidation.model.fileName}"`;
-      const rconResult = await baseController.executeRCONAction(command);
+      await prisma.ModelAuthorization.create({
+        data: {
+          modelId: parseInt(modelId),
+          gameName
+        }
+      });
 
-      if (!rconResult.success) {
-        return baseController.error(res, rconResult.error, rconResult.status);
-      }
+      await baseController.reloadModels();
 
-      const response = rconResult.response;
-      const lowerResponse = response.toLowerCase();
-      const lowerGameName = req.user.gameName.toLowerCase();
-      const lowerFileName = modelValidation.model.fileName.toLowerCase();
-
-      if (lowerResponse.includes('add') && lowerResponse.includes('model') && lowerResponse.includes('player') && 
-          lowerResponse.includes(lowerGameName) && lowerResponse.includes(lowerFileName)) {
-        return baseController.success(res, {
-          rconResponse: response
-        }, '模型授权成功');
-      } else {
-        return baseController.error(res, '模型授权失败，服务器返回异常', 500);
-      }
+      return baseController.success(res, null, '授权成功');
     } catch (err) {
       console.error('授权模型错误:', err);
-      return baseController.error(res, '授权模型失败，请稍后再试', 500);
+      return baseController.error(res, '授权失败', 500);
     }
   }
 
   async function deauthorizeModel(req, res) {
     try {
-      const modelId = parseInt(req.params.id);
+      const { modelId, gameName } = req.body;
 
-      if (!modelId) {
-        return baseController.error(res, '请提供有效的模型ID', 400);
+      if (!modelId || !gameName) {
+        return baseController.error(res, '缺少参数', 400);
       }
 
-      const modelValidation = await baseController.validateModel(modelId, 'auth');
-      if (!modelValidation.valid) {
-        return baseController.error(res, modelValidation.error, modelValidation.status);
-      }
+      await prisma.ModelAuthorization.deleteMany({
+        where: {
+          modelId: parseInt(modelId),
+          gameName
+        }
+      });
 
-      const isUploader = await baseController.validateUploader(modelId, req.user.id);
-      if (!isUploader) {
-        return baseController.error(res, '您没有权限解除授权此模型', 403);
-      }
+      await prisma.NameBinding.deleteMany({
+        where: { gameName }
+      });
 
-      const command = `ysm auth ${req.user.gameName} remove "${modelValidation.model.fileName}"`;
-      const rconResult = await baseController.executeRCONAction(command);
+      await baseController.reloadModels();
 
-      if (!rconResult.success) {
-        return baseController.error(res, rconResult.error, rconResult.status);
-      }
-
-      const response = rconResult.response;
-      const lowerResponse = response.toLowerCase();
-      const lowerGameName = req.user.gameName.toLowerCase();
-      const lowerFileName = modelValidation.model.fileName.toLowerCase();
-
-      if (lowerResponse.includes('remove') && lowerResponse.includes(lowerGameName) && lowerResponse.includes(lowerFileName)) {
-        return baseController.success(res, {
-          rconResponse: response
-        }, '模型解除授权成功');
-      } else {
-        return baseController.error(res, '模型解除授权失败，服务器返回异常', 500);
-      }
+      return baseController.success(res, null, '取消授权成功');
     } catch (err) {
-      console.error('解除授权模型错误:', err);
-      return baseController.error(res, '解除授权模型失败，请稍后再试', 500);
+      console.error('取消授权错误:', err);
+      return baseController.error(res, '取消授权失败', 500);
     }
   }
 
   async function deleteAuthModel(req, res) {
     try {
-      const modelId = parseInt(req.params.id);
+      const { modelId } = req.body;
+      const gameName = req.user.gameName;
 
-      if (!modelId) {
-        return baseController.error(res, '请提供有效的模型ID', 400);
+      if (!modelId || !gameName) {
+        return baseController.error(res, '缺少参数', 400);
       }
 
-      const modelValidation = await baseController.validateModel(modelId, 'auth');
-      if (!modelValidation.valid) {
-        return baseController.error(res, modelValidation.error, modelValidation.status);
-      }
-
-      const isUploader = await baseController.validateUploader(modelId, req.user.id);
-      if (!isUploader) {
-        return baseController.error(res, '您没有权限删除此模型', 403);
-      }
-
-      const uploaderCount = await baseController.prisma.ModelUploader.count({
-        where: { modelId: modelId }
+      await prisma.ModelAuthorization.deleteMany({
+        where: {
+          modelId: parseInt(modelId),
+          gameName
+        }
       });
 
-      if (uploaderCount > 1) {
-        await baseController.prisma.ModelUploader.delete({
-          where: {
-            modelId_userId: {
-              modelId: modelId,
-              userId: req.user.id
-            }
-          }
-        });
+      await baseController.reloadModels();
 
-        return baseController.success(res, null, '已从您的模型列表中移除该模型');
-      } else {
-        baseController.deleteModelFile(modelValidation.model.fileName, 'auth');
-
-        await baseController.prisma.Model.delete({
-          where: { id: modelId }
-        });
-
-        await baseController.reloadModels();
-
-        return baseController.success(res, null, '模型已删除');
-      }
+      return baseController.success(res, null, '删除成功');
     } catch (err) {
-      console.error('删除模型错误:', err);
-      return baseController.error(res, '删除模型失败，请稍后再试', 500);
+      console.error('删除授权模型错误:', err);
+      return baseController.error(res, '删除失败', 500);
+    }
+  }
+
+  async function downloadToCustom(req, res) {
+    try {
+      const { hash, fileName } = req.body;
+      const userId = req.user.id;
+
+      if (!hash || !fileName) {
+        return baseController.error(res, '缺少参数', 400);
+      }
+
+      const model = await prisma.Model.findFirst({
+        where: { hash }
+      });
+
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
+      }
+
+      const filePath = await baseController.getModelFilePath(hash, fileName, 'custom', userId);
+
+      return baseController.success(res, { filePath });
+    } catch (err) {
+      console.error('下载到自定义目录错误:', err);
+      return baseController.error(res, '下载失败', 500);
+    }
+  }
+
+  async function saveToMyModels(req, res) {
+    try {
+      const modelId = parseInt(req.params.id);
+      const userId = req.user.id;
+
+      const model = await prisma.Model.findFirst({
+        where: { id: modelId }
+      });
+
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
+      }
+
+      if (model.currentType === 'auth') {
+        return baseController.error(res, '私人模型无法保存', 400);
+      }
+
+      const existing = await prisma.ModelUploader.findFirst({
+        where: { modelId, userId }
+      });
+
+      if (existing) {
+        return baseController.error(res, '已保存过该模型', 400);
+      }
+
+      await prisma.ModelUploader.create({
+        data: {
+          modelId,
+          userId
+        }
+      });
+
+      await prisma.Model.update({
+        where: { id: modelId },
+        data: { saveCount: { increment: 1 } }
+      });
+
+      return baseController.success(res, null, '保存成功');
+    } catch (err) {
+      console.error('保存模型错误:', err);
+      return baseController.error(res, '保存失败', 500);
+    }
+  }
+
+  async function downloadFile(req, res) {
+    try {
+      const { id } = req.params;
+      const model = await prisma.Model.findFirst({
+        where: { id: parseInt(id) }
+      });
+
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
+      }
+
+      const downloadEnabled = await baseController.getSystemSetting('downloadEnabled') === 'true';
+      if (!downloadEnabled) {
+        return baseController.error(res, '下载功能已关闭', 403);
+      }
+
+      const filePath = await baseController.getYsmFilePath(model.hash, model.fileName);
+
+      if (!filePath) {
+        return baseController.error(res, '文件不存在', 404);
+      }
+
+      return baseController.success(res, { filePath, fileName: model.fileName });
+    } catch (err) {
+      console.error('获取下载链接错误:', err);
+      return baseController.error(res, '获取下载链接失败', 500);
+    }
+  }
+
+  async function incrementDownloadCount(req, res) {
+    try {
+      const { id } = req.params;
+
+      await prisma.Model.update({
+        where: { id: parseInt(id) },
+        data: { downloadCount: { increment: 1 } }
+      });
+
+      return baseController.success(res, null, '下载计数已更新');
+    } catch (err) {
+      console.error('更新下载计数错误:', err);
+      return baseController.error(res, '更新下载计数失败', 500);
+    }
+  }
+
+  async function unlinkFromUser(req, res) {
+    try {
+      const modelId = parseInt(req.params.id);
+      const userId = req.user.id;
+
+      const uploader = await prisma.ModelUploader.findFirst({
+        where: { modelId, userId }
+      });
+
+      if (!uploader) {
+        return baseController.error(res, '未找到该关联', 404);
+      }
+
+      await prisma.ModelUploader.delete({
+        where: { id: uploader.id }
+      });
+
+      const model = await prisma.Model.findFirst({
+        where: { id: modelId }
+      });
+
+      if (model && model.saveCount > 0) {
+        await prisma.Model.update({
+          where: { id: modelId },
+          data: { saveCount: { decrement: 1 } }
+        });
+      }
+
+      return baseController.success(res, null, '解除关联成功');
+    } catch (err) {
+      console.error('解除关联错误:', err);
+      return baseController.error(res, '解除关联失败', 500);
+    }
+  }
+
+  async function getComments(req, res) {
+    try {
+      const modelId = parseInt(req.params.id);
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 20;
+
+      const comments = await prisma.ModelComment.findMany({
+        where: { modelId },
+        include: {
+          user: {
+            select: { id: true, name: true, gameName: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit
+      });
+
+      const total = await prisma.ModelComment.count({
+        where: { modelId }
+      });
+
+      const ratedComments = await prisma.ModelComment.findMany({
+        where: { modelId, rating: { gt: 0 } },
+        select: { rating: true }
+      });
+
+      const totalRatings = ratedComments.length;
+      const averageRating = totalRatings > 0
+        ? ratedComments.reduce((sum, c) => sum + c.rating, 0) / totalRatings
+        : 0;
+
+      return baseController.success(res, {
+        comments,
+        total,
+        averageRating,
+        totalRatings
+      });
+    } catch (err) {
+      console.error('获取评论错误:', err);
+      return baseController.error(res, '获取评论失败', 500);
+    }
+  }
+
+  async function addComment(req, res) {
+    try {
+      const modelId = parseInt(req.params.id);
+      const { content, rating } = req.body;
+
+      if (!content || content.trim().length === 0) {
+        return baseController.error(res, '评论内容不能为空', 400);
+      }
+
+      if (rating !== undefined && (rating < 0 || rating > 5)) {
+        return baseController.error(res, '评分必须在0-5之间', 400);
+      }
+
+      const model = await prisma.Model.findFirst({
+        where: { id: modelId }
+      });
+
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
+      }
+
+      const comment = await prisma.ModelComment.create({
+        data: {
+          modelId,
+          userId: req.user.id,
+          content: content.trim(),
+          rating: rating || 0
+        },
+        include: {
+          user: {
+            select: { id: true, name: true, gameName: true }
+          }
+        }
+      });
+
+      return baseController.success(res, comment, '评论发布成功');
+    } catch (err) {
+      console.error('添加评论错误:', err);
+      return baseController.error(res, '评论发布失败', 500);
+    }
+  }
+
+  async function deleteComment(req, res) {
+    try {
+      const commentId = parseInt(req.params.id);
+      const isAdmin = req.user.role === 'admin';
+
+      const comment = await prisma.ModelComment.findFirst({
+        where: { id: commentId }
+      });
+
+      if (!comment) {
+        return baseController.error(res, '评论不存在', 404);
+      }
+
+      if (comment.userId !== req.user.id && !isAdmin) {
+        return baseController.error(res, '无权删除此评论', 403);
+      }
+
+      await prisma.ModelComment.delete({
+        where: { id: commentId }
+      });
+
+      return baseController.success(res, null, '评论已删除');
+    } catch (err) {
+      console.error('删除评论错误:', err);
+      return baseController.error(res, '删除评论失败', 500);
     }
   }
 
   return {
+    list,
+    get,
+    create,
+    update,
+    delete: deleteModel,
+    upload,
+    uploadImage,
+    link,
+    unlink,
     hashVerification,
     custom,
     auth,
     authorizeModel,
     deauthorizeModel,
-    deleteAuthModel
+    deleteAuthModel,
+    downloadToCustom,
+    saveToMyModels,
+    downloadFile,
+    incrementDownloadCount,
+    unlinkFromUser,
+    getComments,
+    addComment,
+    deleteComment
   };
 }
 

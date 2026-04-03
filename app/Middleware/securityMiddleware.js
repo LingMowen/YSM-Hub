@@ -5,12 +5,12 @@ import { sanitizeInput } from '../../src/utils/common.js';
 export const xssProtection = (req, res, next) => {
   if (req.body) {
     Object.keys(req.body).forEach(key => {
-      if (typeof req.body[key] === 'string') {
+      if (typeof req.body[key] === 'string' && !['password', 'oldPassword', 'newPassword', 'rconPassword'].includes(key)) {
         req.body[key] = sanitizeInput(req.body[key]);
       }
     });
   }
-  
+
   if (req.query) {
     Object.keys(req.query).forEach(key => {
       if (typeof req.query[key] === 'string') {
@@ -18,7 +18,7 @@ export const xssProtection = (req, res, next) => {
       }
     });
   }
-  
+
   if (req.params) {
     Object.keys(req.params).forEach(key => {
       if (typeof req.params[key] === 'string') {
@@ -26,7 +26,7 @@ export const xssProtection = (req, res, next) => {
       }
     });
   }
-  
+
   next();
 };
 

@@ -6,14 +6,15 @@ import { BufferReader, BufferWriter, decode, encode } from '../../src/utils/rcon
 import * as common from '../../src/utils/common.js';
 import fs from 'fs';
 import path from 'path';
+import nodemailer from 'nodemailer';
 
 class RCONClient {
-  constructor(host = process.env.RCON_HOST || "127.0.0.1", port = parseInt(process.env.RCON_PORT) || 25575) {
+  constructor(host = process.env.RCON_HOST || "127.0.0.1", port = parseInt(process.env.RCON_PORT) || 25575, password = process.env.RCON_PASSWORD || '') {
     this.host = host;
     this.port = port;
     this.socket = null;
     this.id = 1;
-    this.password = process.env.RCON_PASSWORD || '';
+    this.password = password;
     this.lastResponse = null;
     this.lastResponseTime = null;
     this.responseTimeout = null;
@@ -21,9 +22,9 @@ class RCONClient {
 
   async connect() {
     return new Promise((resolve, reject) => {
-      this.socket = createConnection({ 
-        host: this.host, 
-        port: this.port 
+      this.socket = createConnection({
+        host: this.host,
+        port: this.port
       });
 
       this.socket.on("data", (buffer) => {
@@ -34,12 +35,12 @@ class RCONClient {
           console.error('RCON decode error:', error);
         }
       });
-      
+
       this.socket.on("error", (error) => {
         console.error('RCON socket error:', error);
         reject(error);
       });
-      
+
       this.socket.on("close", () => {
         console.log('RCON socket closed');
         this.socket = null;
@@ -48,11 +49,11 @@ class RCONClient {
       this.socket.on("connect", async () => {
         console.log(`RCON connected to ${this.host}:${this.port}`);
         try {
-          await this.sendMessage({ 
+          await this.sendMessage({
             type: 3,
-            payload: this.password 
+            payload: this.password
           });
-          
+
           setTimeout(() => {
             resolve();
           }, 200);
@@ -70,18 +71,18 @@ class RCONClient {
   }
 
   async sendCommand(command) {
-    return this.sendMessage({ 
+    return this.sendMessage({
       type: 2,
-      payload: command 
+      payload: command
     });
   }
 
   async sendMessage(msg) {
-    const msgBuf = encode({ 
-      ...msg, 
-      id: this.id++ 
+    const msgBuf = encode({
+      ...msg,
+      id: this.id++
     });
-    
+
     return new Promise((resolve, reject) => {
       this.socket.write(msgBuf, (err) => {
         if (err) {
@@ -113,30 +114,30 @@ class RCONClient {
   async waitForResponse(timeout = process.env.RCON_DISCONNECT_DELAY || 5000) {
     const startTime = Date.now();
     const checkInterval = 100;
-    
+
     return new Promise((resolve) => {
       const checkResponse = () => {
         const elapsed = Date.now() - startTime;
-        
+
         if (elapsed >= timeout) {
           console.log(`Response timeout after ${timeout}ms`);
           resolve(false);
           return;
         }
-        
+
         if (this.lastResponseTime) {
           const timeSinceLastResponse = Date.now() - this.lastResponseTime;
-          
+
           if (timeSinceLastResponse >= 500) {
             console.log(`Response completed after ${elapsed}ms`);
             resolve(true);
             return;
           }
         }
-        
+
         setTimeout(checkResponse, checkInterval);
       };
-      
+
       checkResponse();
     });
   }
@@ -149,6 +150,58 @@ class RCONClient {
 }
 
 function createController() {
+  async function getSystemSetting(key) {
+    const setting = await prisma.SystemSettings.findFirst({
+      where: { key }
+    });
+    return setting ? setting.value : null;
+  }
+
+  async function setSystemSetting(key, value) {
+    await prisma.SystemSettings.upsert({
+      where: { key },
+      create: { key, value },
+      update: { value }
+    });
+  }
+
+  async function sendVerificationEmail(to, code) {
+    const smtpHost = await getSystemSetting('smtpHost') || process.env.SMTP_HOST;
+    const smtpPort = parseInt(await getSystemSetting('smtpPort')) || parseInt(process.env.SMTP_PORT) || 587;
+    const smtpSecure = (await getSystemSetting('smtpSecure')) === 'true' || process.env.SMTP_SECURE === 'true';
+    const smtpUser = await getSystemSetting('smtpUser') || process.env.SMTP_USER;
+    const smtpPass = await getSystemSetting('smtpPass') || process.env.SMTP_PASS;
+    const smtpFromName = await getSystemSetting('smtpFromName') || process.env.SMTP_FROM_NAME || '模型管理系统';
+
+    if (!smtpHost || !smtpUser || !smtpPass) {
+      console.warn('SMTP not configured, skipping email');
+      return { success: false, error: '邮件服务未配置' };
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass
+      }
+    });
+
+    try {
+      await transporter.sendMail({
+        from: `"${smtpFromName}" <${smtpUser}>`,
+        to,
+        subject: '验证码',
+        text: `您的验证码是: ${code}，有效期30分钟。`
+      });
+      return { success: true };
+    } catch (error) {
+      console.error('Email send error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   async function findModelByHash(hash, includeUploaders = false) {
     let include;
     if (includeUploaders) {
@@ -336,10 +389,17 @@ function createController() {
     };
   }
 
-  function moveModelFile(fileName, fromType, toType) {
+  function moveModelFile(fileName, fromType, toType, userId = null) {
     const baseDir = process.env.YSM_MODEL_DIR || './ysm_models';
-    const srcPath = path.join(baseDir, fromType, fileName);
-    const destPath = path.join(baseDir, toType, fileName);
+    
+    let srcPath, destPath;
+    if (userId) {
+      srcPath = path.join(baseDir, 'users', String(userId), fromType, fileName);
+      destPath = path.join(baseDir, 'users', String(userId), toType, fileName);
+    } else {
+      srcPath = path.join(baseDir, fromType, fileName);
+      destPath = path.join(baseDir, toType, fileName);
+    }
 
     if (fs.existsSync(srcPath)) {
       fs.renameSync(srcPath, destPath);
@@ -348,9 +408,15 @@ function createController() {
     return false;
   }
 
-  function deleteModelFile(fileName, type) {
+  function deleteModelFile(fileName, type, userId = null) {
     const baseDir = process.env.YSM_MODEL_DIR || './ysm_models';
-    const filePath = path.join(baseDir, type, fileName);
+    
+    let filePath;
+    if (userId) {
+      filePath = path.join(baseDir, 'users', String(userId), type, fileName);
+    } else {
+      filePath = path.join(baseDir, type, fileName);
+    }
 
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
@@ -413,30 +479,37 @@ function createController() {
 
   async function executeRCONCommand(command) {
     console.log(`Executing RCON command: ${command}`);
-    const rconClient = new RCONClient();
     
+    const rconHost = await getSystemSetting('rconHost') || process.env.RCON_HOST || '127.0.0.1';
+    const rconPort = parseInt(await getSystemSetting('rconPort')) || parseInt(process.env.RCON_PORT) || 25575;
+    const rconPassword = await getSystemSetting('rconPassword') || process.env.RCON_PASSWORD || '';
+    
+    console.log(`RCON config: ${rconHost}:${rconPort}`);
+    
+    const rconClient = new RCONClient(rconHost, rconPort, rconPassword);
+
     try {
       console.log('Connecting to RCON server...');
       await rconClient.connect();
       console.log('Connected, sending command...');
       await rconClient.sendCommand(command);
-      
+
       const timeout = parseInt(process.env.RCON_TIMEOUT) || 5000;
       console.log(`Waiting for response with timeout ${timeout}ms...`);
       const hasResponse = await rconClient.waitForResponse(timeout);
-      
+
       const response = rconClient.lastResponse;
-      
+
       if (!hasResponse) {
         console.log('Response timeout, command may have failed');
       } else {
         console.log(`Response received: ${response || '无响应内容'}`);
       }
-      
+
       console.log('Disconnecting from RCON server...');
       rconClient.disconnect();
       console.log('Disconnected');
-      
+
       return {
         success: hasResponse,
         response: response || '无响应内容'
@@ -454,7 +527,7 @@ function createController() {
       console.log('自动重载已禁用，跳过模型重载');
       return;
     }
-    
+
     console.log('执行模型重载...');
     await executeRCONCommand('ysm model reload');
   }
@@ -484,7 +557,10 @@ function createController() {
     moveModelFile,
     deleteModelFile,
     getUserCompleteInfo,
-    checkUserUploadLimit
+    checkUserUploadLimit,
+    getSystemSetting,
+    setSystemSetting,
+    sendVerificationEmail
   };
 }
 

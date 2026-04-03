@@ -134,19 +134,26 @@ function createAdministratorController() {
 
   async function updateUserUploadLimit(req, res) {
     try {
-      const { username, customUploadLimit, authUploadLimit } = req.body;
+      const { userId, username, customUploadLimit, authUploadLimit } = req.body;
 
-      if (!username) {
-        return baseController.error(res, '缺少用户名', 400);
+      if (!userId && !username) {
+        return baseController.error(res, '缺少用户ID或用户名', 400);
       }
 
       if (customUploadLimit === undefined && authUploadLimit === undefined) {
         return baseController.error(res, '至少需要提供一个上传限制参数', 400);
       }
 
-      const user = await baseController.prisma.User.findFirst({
-        where: { name: username }
-      });
+      let user;
+      if (userId) {
+        user = await baseController.prisma.User.findFirst({
+          where: { id: parseInt(userId) }
+        });
+      } else {
+        user = await baseController.prisma.User.findFirst({
+          where: { name: username }
+        });
+      }
 
       if (!user) {
         return baseController.error(res, '用户不存在', 400);
@@ -254,13 +261,193 @@ function createAdministratorController() {
     }
   }
 
+  async function getAllModels(req, res) {
+    try {
+      const models = await baseController.prisma.Model.findMany({
+        include: {
+          uploaders: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  gameName: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      const result = models.map(model => ({
+        id: model.id,
+        allowAuth: model.allowAuth,
+        currentType: model.currentType,
+        hash: model.hash,
+        name: model.name,
+        fileName: model.fileName,
+        fileSize: model.fileSize,
+        imageUrl: model.imageUrl,
+        description: model.description,
+        reviewStatus: model.reviewStatus,
+        downloadCount: model.downloadCount,
+        saveCount: model.saveCount,
+        createdAt: model.createdAt,
+        updatedAt: model.updatedAt,
+        uploaders: model.uploaders.map(uploader => ({
+          id: uploader.user.id,
+          name: uploader.user.name,
+          gameName: uploader.user.gameName
+        }))
+      }));
+
+      return baseController.success(res, result, '获取模型列表成功');
+    } catch (err) {
+      console.error('获取模型列表错误:', err);
+      return baseController.error(res, '获取模型列表失败，请稍后再试', 500);
+    }
+  }
+
+  async function getPendingReviewModels(req, res) {
+    try {
+      const reviewEnabled = await baseController.getSystemSetting('reviewEnabled') === 'true';
+      if (!reviewEnabled) {
+        return baseController.success(res, [], '审核功能已关闭');
+      }
+
+      const models = await baseController.prisma.Model.findMany({
+        where: { reviewStatus: 'pending' },
+        include: {
+          uploaders: {
+            include: {
+              user: {
+                select: { id: true, name: true, gameName: true }
+              }
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      const result = models.map(model => ({
+        id: model.id,
+        fileName: model.fileName,
+        fileSize: model.fileSize,
+        imageUrl: model.imageUrl,
+        reviewStatus: model.reviewStatus,
+        downloadCount: model.downloadCount,
+        saveCount: model.saveCount,
+        createdAt: model.createdAt,
+        uploaders: model.uploaders.map(uploader => ({
+          id: uploader.user.id,
+          name: uploader.user.name,
+          gameName: uploader.user.gameName
+        }))
+      }));
+
+      return baseController.success(res, result, '获取待审核模型成功');
+    } catch (err) {
+      console.error('获取待审核模型错误:', err);
+      return baseController.error(res, '获取待审核模型失败', 500);
+    }
+  }
+
+  async function reviewModel(req, res) {
+    try {
+      const reviewEnabled = await baseController.getSystemSetting('reviewEnabled') === 'true';
+      if (!reviewEnabled) {
+        return baseController.error(res, '审核功能已关闭', 400);
+      }
+
+      const modelId = parseInt(req.params.id);
+      const { action } = req.body;
+      const reviewerId = req.user.id;
+
+      if (!['approve', 'reject'].includes(action)) {
+        return baseController.error(res, '无效的审核操作', 400);
+      }
+
+      const model = await baseController.prisma.Model.findFirst({
+        where: { id: modelId }
+      });
+
+      if (!model) {
+        return baseController.error(res, '模型不存在', 404);
+      }
+
+      if (model.reviewStatus !== 'pending') {
+        return baseController.error(res, '该模型已审核', 400);
+      }
+
+      const newStatus = action === 'approve' ? 'approved' : 'rejected';
+
+      await baseController.prisma.Model.update({
+        where: { id: modelId },
+        data: {
+          reviewStatus: newStatus,
+          reviewedBy: reviewerId,
+          reviewedAt: new Date()
+        }
+      });
+
+      console.log(`模型审核 - 模型ID: ${modelId} 操作: ${action} 审核员ID: ${reviewerId}`);
+
+      return baseController.success(res, null, action === 'approve' ? '模型已通过审核' : '模型已拒绝');
+    } catch (err) {
+      console.error('审核模型错误:', err);
+      return baseController.error(res, '审核操作失败', 500);
+    }
+  }
+
+  async function setReviewer(req, res) {
+    try {
+      const { userId, isReviewer } = req.body;
+
+      if (!userId) {
+        return baseController.error(res, '缺少用户ID', 400);
+      }
+
+      await baseController.prisma.User.update({
+        where: { id: userId },
+        data: { isReviewer: !!isReviewer }
+      });
+
+      return baseController.success(res, null, isReviewer ? '已授予审核员权限' : '已撤销审核员权限');
+    } catch (err) {
+      console.error('设置审核员错误:', err);
+      return baseController.error(res, '设置审核员失败', 500);
+    }
+  }
+
+  async function getReviewers(req, res) {
+    try {
+      const reviewers = await baseController.prisma.User.findMany({
+        where: { isReviewer: true },
+        select: { id: true, name: true, gameName: true, email: true }
+      });
+
+      return baseController.success(res, reviewers, '获取审核员成功');
+    } catch (err) {
+      console.error('获取审核员错误:', err);
+      return baseController.error(res, '获取审核员失败', 500);
+    }
+  }
+
   return {
     resetPassword,
     deleteModel,
     getModelByFileName,
+    getAllModels,
     updateUserUploadLimit,
     getUserInfoByUsername,
-    getUserInfoByGameName
+    getUserInfoByGameName,
+    getPendingReviewModels,
+    reviewModel,
+    setReviewer,
+    getReviewers
   };
 }
 

@@ -5,10 +5,10 @@ const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   const originalname = fixFilenameEncoding(file.originalname);
-  if (originalname.endsWith('.ysm')) {
+  if (originalname.endsWith('.ysm') || originalname.endsWith('.zip')) {
     cb(null, true);
   } else {
-    cb(new Error('只接受.ysm格式的文件'), false);
+    cb(new Error('只接受.ysm 或.zip 格式的文件'), false);
   }
 };
 
