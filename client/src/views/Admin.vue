@@ -252,12 +252,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, getCurrentInstance } from 'vue';
+import { ref, reactive, onMounted } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import Icon from '../components/Icon.vue';
 import api from '../api';
 
-const { proxy } = getCurrentInstance();
 const authStore = useAuthStore();
 const loadingUsers = ref(false);
 const savingUser = ref(false);
@@ -403,21 +402,19 @@ const editUser = (user) => {
 const saveUser = async () => {
   savingUser.value = true;
   try {
-    // 更新用户基本信息
     await api.users.update(userEditForm.id, {
       gameName: userEditForm.gameName,
       role: userEditForm.role
     });
-    // 更新上传限制
     await api.admin.updateUserUploadLimit(userEditForm.username, {
       customUploadLimit: userEditForm.customUploadLimit,
       authUploadLimit: userEditForm.authUploadLimit
     });
     showUserModal.value = false;
     fetchUsers();
-    proxy.$message.success('保存成功');
+    alert('保存成功');
   } catch (error) {
-    proxy.$message.error('保存失败: ' + (error.message || '未知错误'));
+    alert('保存失败: ' + (error.message || '未知错误'));
   } finally {
     savingUser.value = false;
   }
@@ -439,10 +436,10 @@ const confirmResetPassword = async () => {
         newPassword: res.data?.newPassword
       };
     } else {
-      proxy.$message.error('重置失败: ' + (res.message || '未知错误'));
+      alert('重置失败: ' + (res.message || '未知错误'));
     }
   } catch (error) {
-    proxy.$message.error('重置失败: ' + (error.message || '未知错误'));
+    alert('重置失败: ' + (error.message || '未知错误'));
   } finally {
     resetting.value = false;
   }
@@ -451,24 +448,18 @@ const confirmResetPassword = async () => {
 const copyPassword = () => {
   if (resetResult.value?.newPassword) {
     navigator.clipboard.writeText(resetResult.value.newPassword);
-    proxy.$message.success('密码已复制到剪贴板');
+    alert('密码已复制到剪贴板');
   }
 };
 
 const deleteUser = async (user) => {
-  const confirmed = await proxy.$confirm({
-    title: '确认删除',
-    message: `确定删除用户 "${user.username}" 吗？此操作不可恢复！`,
-    confirmText: '删除',
-    cancelText: '取消'
-  });
-  if (!confirmed) return;
+  if (!confirm(`确定删除用户 "${user.username}" 吗？此操作不可恢复！`)) return;
   try {
     await api.users.delete(user.id);
     fetchUsers();
-    proxy.$message.success('删除成功');
+    alert('删除成功');
   } catch (error) {
-    proxy.$message.error('删除失败: ' + (error.message || '未知错误'));
+    alert('删除失败: ' + (error.message || '未知错误'));
   }
 };
 

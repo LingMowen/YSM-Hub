@@ -265,9 +265,9 @@ const saveUser = async () => {
     });
     showEditModal.value = false;
     fetchUsers();
-    proxy.$message.success('保存成功');
+    alert('保存成功');
   } catch (error) {
-    proxy.$message.error('保存失败: ' + (error.message || '未知错误'));
+    alert('保存失败: ' + (error.message || '未知错误'));
   } finally {
     saving.value = false;
   }
@@ -296,10 +296,10 @@ const confirmResetPassword = async () => {
         newPassword: res.data?.newPassword
       };
     } else {
-      proxy.$message.error('重置失败: ' + (res.message || '未知错误'));
+      alert('重置失败: ' + (res.message || '未知错误'));
     }
   } catch (error) {
-    proxy.$message.error('重置失败: ' + (error.message || '未知错误'));
+    alert('重置失败: ' + (error.message || '未知错误'));
   } finally {
     resetting.value = false;
   }
@@ -308,24 +308,18 @@ const confirmResetPassword = async () => {
 const copyPassword = () => {
   if (resetResult.value?.newPassword) {
     navigator.clipboard.writeText(resetResult.value.newPassword);
-    proxy.$message.success('密码已复制到剪贴板');
+    alert('密码已复制到剪贴板');
   }
 };
 
 const deleteUser = async (user) => {
-  const confirmed = await proxy.$confirm({
-    title: '确认删除',
-    message: `确定删除用户 "${user.name}" 吗？此操作不可恢复！`,
-    confirmText: '删除',
-    cancelText: '取消'
-  });
-  if (!confirmed) return;
+  if (!confirm(`确定删除用户 "${user.name}" 吗？此操作不可恢复！`)) return;
   try {
     await api.users.delete(user.id);
     fetchUsers();
-    proxy.$message.success('删除成功');
+    alert('删除成功');
   } catch (error) {
-    proxy.$message.error('删除失败: ' + (error.message || '未知错误'));
+    alert('删除失败: ' + (error.message || '未知错误'));
   }
 };
 

@@ -254,8 +254,8 @@ const deleteModel = async (model) => {
   try {
     const res = await api.admin.deleteModel(model.id);
     if (res.success) {
-      alert('删除成功');
       fetchModels();
+      alert('删除成功');
     } else {
       alert('删除失败: ' + (res.message || '未知错误'));
     }

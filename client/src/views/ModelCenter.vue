@@ -213,12 +213,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, getCurrentInstance } from 'vue';
+import { ref, reactive, onMounted } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import Icon from '../components/Icon.vue';
 import api from '../api';
 
-const { proxy } = getCurrentInstance();
 const authStore = useAuthStore();
 const loading = ref(false);
 const downloading = ref(null);
@@ -346,7 +345,7 @@ const submitComment = async () => {
     newComment.rating = 0;
     await fetchComments(selectedModel.value.id);
   } catch (error) {
-    proxy.$message.error('评论失败');
+    alert('评论失败');
   } finally {
     submitting.value = false;
   }
@@ -357,7 +356,7 @@ const deleteComment = async (commentId) => {
     await api.models.deleteComment(commentId);
     await fetchComments(selectedModel.value.id);
   } catch (error) {
-    proxy.$message.error('删除失败');
+    alert('删除失败');
   }
 };
 
@@ -378,7 +377,7 @@ const downloadModel = async (model) => {
     await api.models.incrementDownloadCount(model.id);
   } catch (error) {
     console.error('下载失败:', error);
-    proxy.$message.error(error.response?.data?.message || '下载失败');
+    alert(error.response?.data?.message || '下载失败');
   } finally {
     downloading.value = null;
   }
@@ -392,10 +391,10 @@ const saveToMyModels = async (model) => {
     await api.models.saveToMyModels(model.id);
     model.isSaved = true;
     myModelIds.value.add(model.id);
-    proxy.$message.success('模型已保存到您的模型列表！');
+    alert('模型已保存到您的模型列表！');
   } catch (error) {
     console.error('保存失败:', error);
-    proxy.$message.error(error.response?.data?.message || '保存失败');
+    alert(error.response?.data?.message || '保存失败');
   } finally {
     saving.value = null;
   }

@@ -107,11 +107,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, getCurrentInstance } from 'vue';
+import { ref, onMounted } from 'vue';
 import Icon from '../components/Icon.vue';
 import api from '../api';
 
-const { proxy } = getCurrentInstance();
 const loading = ref(false);
 const pendingModels = ref([]);
 const showDetailModal = ref(false);
@@ -123,7 +122,7 @@ const fetchPendingModels = async () => {
     const res = await api.admin.getPendingReviewModels();
     pendingModels.value = res.data || [];
   } catch (error) {
-    proxy.$message.error('获取待审核模型失败');
+    alert('获取待审核模型失败');
   } finally {
     loading.value = false;
   }
@@ -137,22 +136,22 @@ const viewModel = (model) => {
 const approveModel = async (model) => {
   try {
     await api.admin.reviewModel(model.id, 'approve');
-    proxy.$message.success('模型已通过审核');
     showDetailModal.value = false;
     fetchPendingModels();
+    alert('模型已通过审核');
   } catch (error) {
-    proxy.$message.error('操作失败: ' + (error.message || '未知错误'));
+    alert('操作失败: ' + (error.message || '未知错误'));
   }
 };
 
 const rejectModel = async (model) => {
   try {
     await api.admin.reviewModel(model.id, 'reject');
-    proxy.$message.success('模型已拒绝');
     showDetailModal.value = false;
     fetchPendingModels();
+    alert('模型已拒绝');
   } catch (error) {
-    proxy.$message.error('操作失败: ' + (error.message || '未知错误'));
+    alert('操作失败: ' + (error.message || '未知错误'));
   }
 };
 

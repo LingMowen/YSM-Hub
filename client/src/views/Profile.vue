@@ -194,14 +194,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, getCurrentInstance, watch, nextTick } from 'vue';
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import Icon from '../components/Icon.vue';
 import api from '../api';
 import Cropper from 'cropperjs';
 
-const { proxy } = getCurrentInstance();
 const router = useRouter();
 const authStore = useAuthStore();
 
@@ -275,7 +274,7 @@ const handleAvatarChange = (e) => {
   if (!file) return;
 
   if (file.size > 5 * 1024 * 1024) {
-    proxy.$message.error('头像图片不能超过 5MB');
+    alert('头像图片不能超过 5MB');
     return;
   }
 
@@ -308,7 +307,7 @@ const confirmCrop = async () => {
   });
 
   if (!canvas) {
-    proxy.$message.error('裁剪失败');
+    alert('裁剪失败');
     return;
   }
 
@@ -324,17 +323,17 @@ const confirmCrop = async () => {
         if (avatarUrl) {
           authStore.user.avatar = avatarUrl;
           localStorage.setItem('user', JSON.stringify(authStore.user));
-          proxy.$message.success('头像上传成功');
+          alert('头像上传成功');
           closeCropModal();
         }
       } catch (error) {
-        proxy.$message.error('头像上传失败');
+        alert('头像上传失败');
       } finally {
         uploadingAvatar.value = false;
       }
     }, 'image/png', 0.9);
   } catch (error) {
-    proxy.$message.error('裁剪失败');
+    alert('裁剪失败');
     uploadingAvatar.value = false;
   }
 };
@@ -348,9 +347,9 @@ const saveProfile = async () => {
     await api.auth.updateProfile(data);
     await authStore.fetchProfile();
     showEditModal.value = false;
-    proxy.$message.success('保存成功');
+    alert('保存成功');
   } catch (error) {
-    proxy.$message.error('保存失败');
+    alert('保存失败');
   } finally {
     saving.value = false;
   }
